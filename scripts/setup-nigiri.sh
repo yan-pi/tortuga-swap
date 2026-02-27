@@ -20,6 +20,15 @@ fi
 echo "Starting Nigiri..."
 nigiri start
 
+# Fix Esplora UI port: macOS AirPlay Receiver blocks port 5000.
+# Nigiri defaults to 5000:5000 — remap to 5005:5000.
+NIGIRI_COMPOSE="${HOME}/Library/Application Support/Nigiri/docker-compose.yml"
+if [ -f "$NIGIRI_COMPOSE" ] && grep -q '5000:5000' "$NIGIRI_COMPOSE"; then
+    echo "Fixing Esplora UI port (5000 -> 5005, macOS AirPlay conflict)..."
+    sed -i '' 's/5000:5000/5005:5000/' "$NIGIRI_COMPOSE"
+    docker compose -f "$NIGIRI_COMPOSE" up -d esplora
+fi
+
 echo "Waiting for services to be ready..."
 sleep 5
 

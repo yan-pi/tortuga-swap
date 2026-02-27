@@ -1,0 +1,26 @@
+[package]
+name = "tortuga-cli"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "tortuga"
+path = "src/main.rs"
+
+[dependencies]
+cl-crypto = { path = "../cl-crypto" }
+adaptor = { path = "../adaptor" }
+protocol = { path = "../protocol" }
+tortuga-bitcoin = { path = "../bitcoin" }
+clap.workspace = true
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+hex.workspace = true
+secp256k1.workspace = true
+curv-kzen.workspace = true
+class_group.workspace = true
+rand.workspace = true
+bitcoin.workspace = true
+sha2.workspace = true

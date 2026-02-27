@@ -4,6 +4,7 @@ members = [
     "crates/cl-crypto",
     "crates/adaptor",
     "crates/protocol",
+    "crates/bitcoin",
 ]
 
 [workspace.dependencies]

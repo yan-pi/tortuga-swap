@@ -36,7 +36,7 @@ A2L swap:
 LIBRARY_PATH="/opt/homebrew/lib:$LIBRARY_PATH" cargo test --workspace -- --test-threads=1
 ```
 
-81 tests across 5 crates (+ 1 ignored regtest test).
+82 tests across 5 crates (+ 1 ignored regtest test).
 
 ### In-Memory Demo (no Nigiri needed)
 
@@ -104,7 +104,7 @@ LIBRARY_PATH="/opt/homebrew/lib:$LIBRARY_PATH" cargo run --bin tortuga -- setup
 | `cl-crypto` | CL encryption, puzzles, CLDL ZK proofs | 32 |
 | `adaptor` | Schnorr adaptor signatures (BIP340-compatible) | 8 |
 | `protocol` | A2L orchestration (tumbler, promise, solver) | 14 |
-| `bitcoin` | Taproot P2TR, HTLC, Esplora client, funding | 27 |
+| `bitcoin` | Taproot P2TR, HTLC, Esplora client, funding | 28 |
 | `cli` | Demo binary with 4 subcommands | - |
 
 ## Protocol Flow

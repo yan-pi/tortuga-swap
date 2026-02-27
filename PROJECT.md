@@ -130,7 +130,7 @@ Sender (Alice)                               Tumbler
 ```
 ┌──────────────────────────────────────────────────────────┐
 │                    CLI (demo binary)                      │
-│              init-swap / complete-swap / verify           │
+│            setup | htlc-swap | a2l-swap | compare         │
 ├──────────────┬───────────────────────────┬───────────────┤
 │  protocol/   │      bitcoin/             │   (Nigiri)    │
 │  - promise   │  - taproot tx builder     │   - bitcoind  │
@@ -144,7 +144,7 @@ Sender (Alice)                               Tumbler
 │ - extract│  (wraps ZenGo-X/class)       │               │
 ├──────────┴───────────────────────────────┤               │
 │        External dependencies             │               │
-│  secp256k1-zkp  |  ZenGo-X/class (PARI) │               │
+│  secp256k1      |  ZenGo-X/class (PARI) │               │
 │  rust-bitcoin   |  curv-kzen             │               │
 └──────────────────────────────────────────┴───────────────┘
 ```
@@ -233,8 +233,8 @@ secp256k1 = { version = "0.29", features = ["global-context", "rand-std"] }
 bitcoin = { version = "0.32", features = ["rand-std"] }
 
 # CL encryption (class groups via PARI)
-class_group = { git = "https://github.com/ZenGo-X/class", tag = "v0.7.0" }
-curv-kzen = { version = "0.10", default-features = false, features = ["ec_secp256k1"] }
+class_group = { git = "https://github.com/ZenGo-X/class", branch = "master" }
+curv-kzen = { version = "0.10", default-features = false }
 
 # Serialization / networking
 serde = { version = "1", features = ["derive"] }
@@ -804,10 +804,10 @@ echo "Waiting for services..."
 sleep 5
 
 # Nigiri endpoints:
-# - Bitcoin RPC:    localhost:18443 (user: admin, pass: admin)
+# - Bitcoin RPC:    localhost:18443 (user: admin1, pass: 123)
 # - Electrs:        localhost:3002
 # - Esplora API:    localhost:3000
-# - Esplora UI:     localhost:5000
+# - Esplora UI:     localhost:5005
 # - LND REST:       localhost:8080 (if --ln)
 # - CLN:            localhost:19846 (if --ln)
 
@@ -829,18 +829,17 @@ echo "Sender:   $SENDER_ADDR"
 echo "Tumbler:  $TUMBLER_ADDR"
 echo "Receiver: $RECEIVER_ADDR"
 echo "Esplora:  http://localhost:3000"
-echo "Explorer: http://localhost:5000"
+echo "Explorer: http://localhost:5005"
 ```
 
 ### Esplora API Endpoints Used
 
 ```
-POST /api/tx                          # Broadcast raw tx hex
-GET  /api/address/:addr/utxo          # List UTXOs
-GET  /api/tx/:txid                    # Get transaction details
-GET  /api/tx/:txid/status             # Confirmation status
-GET  /api/blocks/tip/height           # Current block height
-POST /api/tx/:txid/outspend/:vout     # Check if output is spent
+POST /tx                              # Broadcast raw tx hex
+GET  /address/:addr/utxo              # List UTXOs
+GET  /tx/:txid                        # Get transaction details
+GET  /tx/:txid/status                 # Confirmation status
+GET  /blocks/tip/height               # Current block height
 ```
 
 ### Mining Blocks (confirm transactions)

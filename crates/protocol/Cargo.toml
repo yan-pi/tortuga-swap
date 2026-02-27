@@ -13,3 +13,9 @@ serde.workspace = true
 anyhow.workspace = true
 thiserror.workspace = true
 rand.workspace = true
+
+[dev-dependencies]
+tortuga-bitcoin = { path = "../bitcoin" }
+bitcoin.workspace = true
+tokio.workspace = true
+hex.workspace = true

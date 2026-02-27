@@ -163,32 +163,33 @@ tortuga/
 │   ├── cl-crypto/                # CL encryption + puzzles + CLDL proofs
 │   │   ├── Cargo.toml
 │   │   └── src/
-│   │       ├── lib.rs            # Re-exports
-│   │       ├── keys.rs           # CL key generation (setup, keygen)
-│   │       ├── encryption.rs     # CL encrypt / decrypt
-│   │       ├── puzzle.rs         # PGen, PRand, PSolve, PVerify
-│   │       └── proof.rs          # CLDL Σ-protocol (prove / verify)
+│   │       ├── lib.rs            # Re-exports + ClError enum
+│   │       ├── keys.rs           # CL key generation (ClSetup, TumblerKeyPair)
+│   │       ├── encryption.rs     # CL encrypt / decrypt / homomorphic add
+│   │       ├── puzzle.rs         # puzzle_gen, puzzle_rand, puzzle_solve, puzzle_verify
+│   │       ├── proof.rs          # CLDL prove_encryption / verify_encryption
+│   │       └── convert.rs        # Type conversions (curv <-> secp256k1)
 │   │
 │   ├── adaptor/                  # Schnorr adaptor signatures
 │   │   ├── Cargo.toml
 │   │   └── src/
-│   │       ├── lib.rs
-│   │       └── schnorr.rs        # AdaptorSign, AdaptorVerify, Complete, Extract
+│   │       ├── lib.rs            # AdaptorError enum
+│   │       └── schnorr.rs        # adaptor_sign, adaptor_verify, adaptor_complete, adaptor_extract
 │   │
 │   ├── protocol/                 # A2L protocol orchestration
 │   │   ├── Cargo.toml
 │   │   └── src/
-│   │       ├── lib.rs
-│   │       ├── types.rs          # Puzzle, PreSignature, SwapState, etc.
-│   │       ├── promise.rs        # Puzzle Promise sub-protocol
-│   │       ├── solver.rs         # Puzzle Solver sub-protocol
-│   │       └── tumbler.rs        # Tumbler role logic
+│   │       ├── lib.rs            # ProtocolError enum
+│   │       ├── types.rs          # PromiseOutput, SolverOutput, TumblerSolution
+│   │       ├── promise.rs        # Puzzle Promise sub-protocol (receiver_process)
+│   │       ├── solver.rs         # Puzzle Solver sub-protocol (sender_process, sender_extract)
+│   │       └── tumbler.rs        # Tumbler role (create_puzzle, solve_and_complete, complete_tx2)
 │   │
 │   ├── bitcoin/                  # Bitcoin transaction construction
 │   │   ├── Cargo.toml
 │   │   └── src/
-│   │       ├── lib.rs
-│   │       ├── taproot.rs        # P2TR output creation, keyspend signing
+│   │       ├── lib.rs            # BitcoinError enum
+│   │       ├── taproot.rs        # P2TR outputs, sighash, keypath witness, tx building
 │   │       ├── htlc.rs           # Baseline HTLC swap (for comparison demo)
 │   │       ├── esplora.rs        # REST client for Nigiri's Esplora
 │   │       └── funding.rs        # Regtest funding helpers (nigiri faucet)
@@ -196,7 +197,10 @@ tortuga/
 │   └── cli/                      # Demo binary
 │       ├── Cargo.toml
 │       └── src/
-│           └── main.rs           # Subcommands: setup, htlc-swap, a2l-swap, compare
+│           ├── main.rs           # Subcommands: setup, htlc-swap, a2l-swap, compare
+│           ├── setup.rs          # Setup command implementation
+│           ├── swap_a2l.rs       # A2L swap command (in-memory + on-chain)
+│           └── swap_htlc.rs      # HTLC swap command (in-memory + on-chain)
 │
 ├── scripts/
 │   ├── setup-nigiri.sh           # nigiri start --ln, fund wallets
@@ -204,12 +208,8 @@ tortuga/
 │   ├── demo-a2l.sh               # Run A2L swap, show unlinkable points
 │   └── demo-compare.sh           # Side-by-side comparison
 │
-└── tests/
-    ├── cl_crypto_test.rs         # CL encryption roundtrip + proof verification
-    ├── adaptor_test.rs           # Adaptor sig sign/verify/complete/extract cycle
-    ├── puzzle_test.rs            # PGen → PRand → PSolve roundtrip
-    ├── protocol_test.rs          # Full A2L promise + solver flow (in-memory)
-    └── integration_test.rs       # Full swap on regtest via Nigiri
+└── tests/                        # Integration tests (crate-level tests are in src/)
+    └── ...
 ```
 
 ---
@@ -275,70 +275,122 @@ sha2.workspace = true
 rand.workspace = true
 serde.workspace = true
 anyhow.workspace = true
+thiserror.workspace = true
 ```
 
-### Key Types
+### Error Types (lib.rs)
 
 ```rust
-// keys.rs
-use class_group::primitives::cl_dl_public_setup::{CLGroup, SK, PK};
+use thiserror::Error;
 
-pub struct CLSetup {
-    pub group: CLGroup,     // Class group parameters (discriminant, generators)
+/// Errors that can occur in CL cryptographic operations.
+#[derive(Debug, Error)]
+pub enum ClError {
+    #[error("CL encryption failed: {0}")]
+    EncryptionFailed(String),
+    #[error("CL decryption failed: {0}")]
+    DecryptionFailed(String),
+    #[error("CLDL proof verification failed")]
+    ProofVerificationFailed,
+    #[error("invalid scalar: {0}")]
+    InvalidScalar(String),
+    #[error("invalid point: {0}")]
+    InvalidPoint(String),
+    #[error("class group setup failed: {0}")]
+    SetupFailed(String),
 }
 
+pub type Result<T> = std::result::Result<T, ClError>;
+```
+
+### Key Types (keys.rs)
+
+```rust
+use class_group::primitives::cl_dl_public_setup::{CLGroup, SK, PK};
+
+/// Class group setup for CL encryption.
+pub struct ClSetup {
+    pub group: CLGroup,     // Class group parameters (discriminant, generators)
+    seed: BigInt,           // Seed used for deterministic generation
+}
+
+/// Tumbler keypair for CL encryption.
 pub struct TumblerKeyPair {
     pub sk: SK,             // CL secret key
     pub pk: PK,             // CL public key
 }
 
-impl CLSetup {
-    /// Generate class group with ~1827-bit discriminant for 128-bit security
-    /// Uses secp256k1 curve order q as message space
+impl ClSetup {
+    /// Creates a new class group setup with the default deterministic seed.
+    /// This is computationally expensive and should be cached.
+    #[must_use]
     pub fn new() -> Self;
+
+    /// Verifies that the class group was correctly generated from the seed.
+    pub fn verify(&self) -> Result<()>;
+
+    /// Returns a reference to the underlying class group.
+    #[must_use]
+    pub fn group(&self) -> &CLGroup;
 }
 
 impl TumblerKeyPair {
-    pub fn generate(setup: &CLSetup) -> Self;
+    /// Generates a new random keypair for the given setup.
+    #[must_use]
+    pub fn generate(setup: &ClSetup) -> Self;
 }
 ```
 
+### Encryption (encryption.rs)
+
 ```rust
-// encryption.rs
 use class_group::primitives::cl_dl_public_setup::{Ciphertext, CLGroup, PK, SK};
-use curv::elliptic::curves::{Scalar, Point, Secp256k1};
+use curv::elliptic::curves::{Scalar, Secp256k1};
 
-/// CL-encrypt a secp256k1 scalar
-pub fn cl_encrypt(group: &CLGroup, pk: &PK, m: &Scalar<Secp256k1>) -> (Ciphertext, Scalar<Secp256k1>);
-
-/// CL-decrypt to recover a secp256k1 scalar
-pub fn cl_decrypt(group: &CLGroup, sk: &SK, ct: &Ciphertext) -> Scalar<Secp256k1>;
-
-/// Homomorphic addition of two ciphertexts: Enc(m1) + Enc(m2) = Enc(m1+m2)
-pub fn cl_add(group: &CLGroup, ct1: &Ciphertext, ct2: &Ciphertext) -> Ciphertext;
-```
-
-```rust
-// puzzle.rs
-use curv::elliptic::curves::{Scalar, Point, Secp256k1};
-
-/// A randomizable puzzle: EC point Y and CL ciphertext of its discrete log
-pub struct Puzzle {
-    pub point: Point<Secp256k1>,    // Y = α·G
-    pub ciphertext: Ciphertext,      // CL.Encrypt(pk_T, α)
-    pub proof: CLDLProof,            // π: proves Y and ciphertext encode same α
-}
-
-/// Generate a fresh puzzle from secret α
-/// Returns (puzzle, secret_α)
-pub fn puzzle_gen(
+/// Encrypts a scalar under the given CL public key.
+/// Returns the ciphertext and the randomness used for encryption.
+#[must_use]
+pub fn cl_encrypt(
     group: &CLGroup,
     pk: &PK,
-    alpha: &Scalar<Secp256k1>,
-) -> Puzzle;
+    msg: &Scalar<Secp256k1>,
+) -> (Ciphertext, SK);
 
-/// Randomize a puzzle with random ρ — produces unlinkable puzzle
-/// Z' = (Y + ρ·G, Enc(α) · Enc(ρ))
+/// Decrypts a ciphertext using the given CL secret key.
+#[must_use]
+pub fn cl_decrypt(
+    group: &CLGroup,
+    sk: &SK,
+    ct: &Ciphertext,
+) -> Scalar<Secp256k1>;
+
+/// Homomorphically adds two ciphertexts.
+/// The resulting ciphertext decrypts to the sum of the two plaintexts.
+#[must_use]
+pub fn cl_add(ct1: &Ciphertext, ct2: &Ciphertext) -> Ciphertext;
+```
+
+### Puzzle Scheme (puzzle.rs)
+
+```rust
+use class_group::primitives::cl_dl_public_setup::{CLDLProof, CLGroup, Ciphertext, PK, SK};
+use curv::elliptic::curves::{Point, Scalar, Secp256k1};
+
+/// A randomizable puzzle combining an EC point and CL ciphertext.
+#[derive(Clone, Debug)]
+pub struct Puzzle {
+    pub point: Point<Secp256k1>,    // Y = alpha * G
+    pub ciphertext: Ciphertext,      // CL.Encrypt(pk_T, alpha)
+    pub proof: CLDLProof,            // CLDL proof that ciphertext encrypts dlog(point)
+}
+
+/// Generates a new puzzle for the given secret value.
+#[must_use]
+pub fn puzzle_gen(group: &CLGroup, pk: &PK, alpha: &Scalar<Secp256k1>) -> Puzzle;
+
+/// Randomizes a puzzle by adding a blinding factor.
+/// Given puzzle for alpha and blinding factor rho, produces puzzle for (alpha + rho).
+#[must_use]
 pub fn puzzle_rand(
     group: &CLGroup,
     pk: &PK,
@@ -346,53 +398,76 @@ pub fn puzzle_rand(
     rho: &Scalar<Secp256k1>,
 ) -> Puzzle;
 
-/// Tumbler solves puzzle: decrypt to get α (or α+ρ if randomized)
-pub fn puzzle_solve(
-    group: &CLGroup,
-    sk: &SK,
-    puzzle: &Puzzle,
-) -> Scalar<Secp256k1>;
+/// Solves a puzzle by decrypting the ciphertext.
+/// Returns the discrete log of the puzzle's EC point.
+#[must_use]
+pub fn puzzle_solve(group: &CLGroup, sk: &SK, puzzle: &Puzzle) -> Scalar<Secp256k1>;
+
+/// Verifies a puzzle's CLDL proof.
+pub fn puzzle_verify(group: &CLGroup, pk: &PK, puzzle: &Puzzle) -> Result<()>;
 ```
 
-```rust
-// proof.rs — CLDL zero-knowledge proof
-use class_group::primitives::cl_dl_public_setup::CLDLProof;
+### CLDL Proofs (proof.rs)
 
-/// Prove that CL ciphertext c encrypts the discrete log of EC point Y
-/// Uses Fiat-Shamir transformed Σ-protocol
-pub fn prove_cldl(
+```rust
+use class_group::primitives::cl_dl_public_setup::{CLDLProof, CLGroup, Ciphertext, PK};
+use curv::elliptic::curves::{Point, Scalar, Secp256k1};
+
+/// Creates a CL encryption of a scalar with a proof that the ciphertext
+/// encrypts the discrete log of the corresponding EC point.
+/// Returns the ciphertext and the CLDL proof.
+#[must_use]
+pub fn prove_encryption(
     group: &CLGroup,
     pk: &PK,
     alpha: &Scalar<Secp256k1>,
-    randomness: &Scalar<Secp256k1>,  // CL encryption randomness
-    point: &Point<Secp256k1>,
-    ciphertext: &Ciphertext,
-) -> CLDLProof;
+) -> (Ciphertext, CLDLProof);
 
-/// Verify CLDL proof
-pub fn verify_cldl(
+/// Verifies that a CLDL proof is valid.
+pub fn verify_encryption(
     group: &CLGroup,
     pk: &PK,
     point: &Point<Secp256k1>,
-    ciphertext: &Ciphertext,
+    ct: &Ciphertext,
     proof: &CLDLProof,
-) -> bool;
+) -> Result<()>;
+```
+
+### Type Conversions (convert.rs)
+
+```rust
+use secp256k1::{PublicKey, SecretKey};
+use curv::elliptic::curves::{Point, Scalar, Secp256k1};
+
+/// Converts a curv-kzen Scalar to a secp256k1 SecretKey.
+pub fn curv_scalar_to_secret_key(scalar: &Scalar<Secp256k1>) -> Result<SecretKey>;
+
+/// Converts a secp256k1 SecretKey to a curv-kzen Scalar.
+#[must_use]
+pub fn secret_key_to_curv_scalar(sk: &SecretKey) -> Scalar<Secp256k1>;
+
+/// Converts a curv-kzen Point to a secp256k1 PublicKey.
+pub fn curv_point_to_public_key(point: &Point<Secp256k1>) -> Result<PublicKey>;
+
+/// Converts a secp256k1 PublicKey to a curv-kzen Point.
+#[must_use]
+pub fn public_key_to_curv_point(pk: &PublicKey) -> Point<Secp256k1>;
 ```
 
 ### Reference Implementation Mapping
 
-The ZenGo-X/class crate already provides most of these operations. Key files to study:
+The ZenGo-X/class crate provides most operations. Key files:
 
 | Our function | ZenGo-X/class location | Notes |
 |---|---|---|
-| `CLSetup::new()` | `cl_dl_public_setup::CLGroup::new_from_setup()` | Discriminant generation |
+| `ClSetup::new()` | `cl_dl_public_setup::CLGroup::new_from_setup()` | Discriminant generation |
 | `cl_encrypt` | `cl_dl_public_setup::encrypt()` | Returns (ciphertext, randomness) |
 | `cl_decrypt` | `cl_dl_public_setup::decrypt()` | Recovers scalar |
-| `prove_cldl` | `cl_dl_public_setup::CLDLProof::prove()` | Fiat-Shamir Σ-protocol |
-| `verify_cldl` | `cl_dl_public_setup::CLDLProof::verify()` | Verification |
-| Homomorphic add | `cl_dl_public_setup::eval_sum()` | Ciphertext addition |
+| `prove_encryption` | `cl_dl_public_setup::verifiably_encrypt()` | Creates ciphertext + CLDL proof |
+| `verify_encryption` | `CLDLProof::verify()` | Verification |
+| `cl_add` | `cl_dl_public_setup::eval_sum()` | Ciphertext addition |
 
-**⚠️ CRITICAL**: ZenGo-X/class depends on GMP (GNU Multiple Precision Arithmetic) and vendors PARI/GP source internally (compiled automatically by build.rs). Only GMP needs to be installed:
+**System Dependencies**: ZenGo-X/class depends on GMP (GNU Multiple Precision Arithmetic). PARI/GP is vendored and compiled automatically by build.rs.
 - macOS: `brew install gmp`
 - Ubuntu: `apt install libgmp-dev`
 
@@ -400,68 +475,108 @@ The ZenGo-X/class crate already provides most of these operations. Key files to 
 
 ## Crate: adaptor
 
-### Key Types and Functions
+### Cargo.toml
+
+```toml
+[package]
+name = "adaptor"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+secp256k1.workspace = true
+sha2.workspace = true
+rand.workspace = true
+serde.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+```
+
+### Error Types (lib.rs)
 
 ```rust
-// schnorr.rs
-use secp256k1::{SecretKey, PublicKey, Message, Secp256k1};
+use thiserror::Error;
 
-/// An adaptor pre-signature: locked to adaptor point T, cannot produce valid sig without secret t
-pub struct AdaptorSignature {
-    pub r_prime: PublicKey,          // R' = R + T (nonce + adaptor point)
-    pub s_prime: [u8; 32],          // s' = k + e·x (pre-signature scalar)
+/// Errors that can occur during adaptor signature operations.
+#[derive(Debug, Error)]
+pub enum AdaptorError {
+    #[error("adaptor verification failed")]
+    VerificationFailed,
+    #[error("invalid adaptor secret: {0}")]
+    InvalidSecret(String),
+    #[error("scalar arithmetic overflow")]
+    ScalarOverflow,
+    #[error("secp256k1 error: {0}")]
+    Secp256k1(#[from] secp256k1::Error),
 }
 
-/// Create adaptor pre-signature
-/// T is the adaptor point (from puzzle: Y = α·G or randomized Y')
-/// The resulting pre-sig can only be completed by someone who knows t (the DL of T)
-pub fn adaptor_sign(
-    secp: &Secp256k1<secp256k1::All>,
-    sk: &SecretKey,
-    msg: &Message,
-    adaptor_point: &PublicKey,       // T = t·G
-) -> AdaptorSignature;
+pub type Result<T> = std::result::Result<T, AdaptorError>;
+```
 
-/// Verify an adaptor pre-signature is valid for the given adaptor point
-pub fn adaptor_verify(
-    secp: &Secp256k1<secp256k1::All>,
+### Key Types and Functions (schnorr.rs)
+
+```rust
+use secp256k1::{SecretKey, PublicKey, Secp256k1};
+
+/// Adaptor pre-signature locked to an adaptor point T.
+#[derive(Clone, Debug)]
+pub struct AdaptorSignature {
+    pub r_point: PublicKey,         // R' = R + T (full PublicKey for point arithmetic)
+    pub s_prime: [u8; 32],          // s' = k + e*x (mod n), big-endian
+}
+
+/// Create an adaptor signature (pre-signature) locked to an adaptor point.
+/// The pre-signature can only be completed by someone who knows the discrete
+/// log of the adaptor point (the adaptor secret).
+pub fn adaptor_sign<C: secp256k1::Signing>(
+    secp: &Secp256k1<C>,
+    sk: &SecretKey,
+    msg: &[u8; 32],
+    adaptor_point: &PublicKey,
+) -> Result<AdaptorSignature>;
+
+/// Verify an adaptor signature (pre-signature).
+/// Returns true if the pre-signature is valid, false otherwise.
+#[must_use]
+pub fn adaptor_verify<C: secp256k1::Verification + secp256k1::Signing>(
+    secp: &Secp256k1<C>,
     pk: &PublicKey,
-    msg: &Message,
+    msg: &[u8; 32],
     adaptor_point: &PublicKey,
     pre_sig: &AdaptorSignature,
 ) -> bool;
 
-/// Complete an adaptor pre-signature using the adaptor secret
-/// Returns a standard valid Schnorr signature
+/// Complete an adaptor signature using the adaptor secret.
+/// Returns a valid BIP340 Schnorr signature.
 pub fn adaptor_complete(
     pre_sig: &AdaptorSignature,
-    adaptor_secret: &SecretKey,      // t (scalar)
-) -> schnorr::Signature;
+    adaptor_secret: &SecretKey,
+) -> Result<secp256k1::schnorr::Signature>;
 
-/// Extract the adaptor secret from a completed signature and the pre-signature
-/// This is how atomicity works: publishing a completed sig reveals the secret
+/// Extract the adaptor secret from a completed signature.
+/// This is how atomicity works: publishing a completed sig reveals the secret.
 pub fn adaptor_extract(
-    completed_sig: &schnorr::Signature,
+    completed_sig: &secp256k1::schnorr::Signature,
     pre_sig: &AdaptorSignature,
-) -> SecretKey;
+) -> Result<SecretKey>;
 ```
 
 ### Adaptor Signature Math (BIP340 compatible)
 
 ```
 AdaptorSign(x, m, T):
-    k ← random nonce
-    R = k·G
+    k <- random nonce
+    R = k*G
     R' = R + T
     if R'.y is odd: negate k, recompute R, R' = R + T
     e = H_BIP340("BIP0340/challenge" || R'.x || P.x || m)
-    s' = k + e·x (mod n)
+    s' = k + e*x (mod n)
     return (R', s')
 
 AdaptorVerify(P, m, T, (R', s')):
     e = H_BIP340("BIP0340/challenge" || R'.x || P.x || m)
-    check: s'·G == R' - T + e·P
-    (equivalently: s'·G == R + e·P, where R = R' - T)
+    check: s'*G == R' - T + e*P
+    (equivalently: s'*G == R + e*P, where R = R' - T)
 
 Complete((R', s'), t):
     s = s' + t (mod n)
@@ -472,284 +587,472 @@ Extract(sig=(R, s), pre_sig=(R', s')):
     return t
 ```
 
-**⚠️ SECURITY**: Nonce `k` MUST be generated using RFC 6979 deterministic nonce or a CSPRNG. Never reuse nonces. Side-channel: use constant-time scalar operations from secp256k1 crate.
+**Security**: Nonce `k` is generated using a CSPRNG. Never reuse nonces. Uses constant-time scalar operations from the secp256k1 crate.
 
 ---
 
 ## Crate: bitcoin
 
-### Esplora Client (Nigiri)
+### Cargo.toml
+
+```toml
+[package]
+name = "tortuga-bitcoin"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+bitcoin.workspace = true
+secp256k1.workspace = true
+tokio.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+hex.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+sha2.workspace = true
+rand.workspace = true
+```
+
+### Error Types (lib.rs)
 
 ```rust
-// esplora.rs
-const ESPLORA_URL: &str = "http://localhost:3000";
+use thiserror::Error;
 
+/// Errors that can occur in bitcoin operations.
+#[derive(Debug, Error)]
+pub enum BitcoinError {
+    #[error("taproot error: {0}")]
+    Taproot(String),
+    #[error("transaction error: {0}")]
+    Transaction(String),
+    #[error("esplora error: {0}")]
+    Esplora(String),
+    #[error("sighash error: {0}")]
+    Sighash(String),
+}
+
+pub type Result<T> = std::result::Result<T, BitcoinError>;
+```
+
+### Esplora Client (esplora.rs)
+
+```rust
+/// Default Esplora URL for Nigiri regtest.
+const NIGIRI_ESPLORA_URL: &str = "http://localhost:3000";
+
+/// Esplora REST API client.
+#[derive(Debug, Clone)]
 pub struct EsploraClient {
     client: reqwest::Client,
     base_url: String,
 }
 
 impl EsploraClient {
-    pub fn new_nigiri() -> Self {
-        Self {
-            client: reqwest::Client::new(),
-            base_url: ESPLORA_URL.to_string(),
-        }
-    }
+    /// Creates a new client pointing to Nigiri's default Esplora endpoint.
+    #[must_use]
+    pub fn new_nigiri() -> Self;
 
-    /// Broadcast raw transaction hex, returns txid
+    /// Creates a new client with a custom base URL.
+    #[must_use]
+    pub fn new(base_url: &str) -> Self;
+
+    /// Broadcasts a raw transaction to the network.
     pub async fn broadcast(&self, tx_hex: &str) -> Result<String>;
 
-    /// Get transaction status (confirmed, block height)
+    /// Gets the confirmation status of a transaction.
     pub async fn get_tx_status(&self, txid: &str) -> Result<TxStatus>;
 
-    /// Get UTXOs for an address
+    /// Gets all UTXOs for an address.
     pub async fn get_utxos(&self, address: &str) -> Result<Vec<Utxo>>;
 
-    /// Get current block height
+    /// Polls UTXOs for an address until at least one is found.
+    pub async fn wait_for_utxos(&self, address: &str, timeout_secs: u64) -> Result<Vec<Utxo>>;
+
+    /// Gets the total balance (sum of UTXO values) for an address.
+    pub async fn get_balance(&self, address: &str) -> Result<u64>;
+
+    /// Gets the current block height.
     pub async fn get_block_height(&self) -> Result<u64>;
 
-    /// Wait for transaction confirmation (poll)
+    /// Waits for a transaction to be confirmed.
     pub async fn wait_for_confirmation(&self, txid: &str, timeout_secs: u64) -> Result<()>;
 }
 ```
 
-### Taproot Transaction Builder
+### Funding Helpers (funding.rs)
 
 ```rust
-// taproot.rs
-use bitcoin::{Transaction, TxIn, TxOut, OutPoint, ScriptBuf, Witness};
-use bitcoin::taproot::{TaprootBuilder, TaprootSpendInfo};
-use bitcoin::secp256k1::{Keypair, XOnlyPublicKey};
+/// Default Nigiri faucet URL.
+const NIGIRI_FAUCET_URL: &str = "http://localhost:3000/faucet";
 
-/// Create a P2TR output (key-path only, no script tree)
-/// For A2L: the key is a MuSig2 aggregate or single key
+/// Default Nigiri Bitcoin RPC URL.
+const NIGIRI_RPC_URL: &str = "http://localhost:18443";
+
+/// Default Nigiri Bitcoin RPC credentials.
+const NIGIRI_RPC_USER: &str = "admin1";
+const NIGIRI_RPC_PASS: &str = "123";
+
+/// Funds an address via Nigiri's faucet.
+pub async fn fund_from_faucet(address: &str, amount_btc: f64) -> Result<String>;
+
+/// Mines blocks on regtest via Bitcoin Core JSON-RPC.
+pub async fn mine_blocks(count: u32) -> Result<()>;
+```
+
+### Taproot Transaction Builder (taproot.rs)
+
+```rust
+use bitcoin::{Transaction, TxOut, ScriptBuf, Witness, Amount};
+use bitcoin::secp256k1::{self, Secp256k1, XOnlyPublicKey};
+use bitcoin::taproot::TaprootSpendInfo;
+
+/// Creates a P2TR TxOut for key-path only spending (no script tree).
+#[must_use]
 pub fn create_p2tr_output(
-    internal_key: &XOnlyPublicKey,
-    amount_sats: u64,
+    secp: &Secp256k1<secp256k1::All>,
+    internal_key: XOnlyPublicKey,
+    amount: Amount,
 ) -> TxOut;
 
-/// Create a P2TR output with a timelock script path (for refund)
-/// Key path: cooperative spend (adaptor signature)
-/// Script path: OP_CSV timelock refund
+/// Creates a P2TR TxOut with a CSV timelock refund script path.
+#[must_use]
 pub fn create_p2tr_with_refund(
-    internal_key: &XOnlyPublicKey,
-    refund_key: &XOnlyPublicKey,
+    secp: &Secp256k1<secp256k1::All>,
+    internal_key: XOnlyPublicKey,
+    refund_key: XOnlyPublicKey,
     timelock_blocks: u16,
-    amount_sats: u64,
+    amount: Amount,
 ) -> (TxOut, TaprootSpendInfo);
 
-/// Sign a Taproot key-path spend using a standard Schnorr signature
-/// For A2L: this is called AFTER adaptor_complete() produces a valid sig
-pub fn sign_keypath_spend(
+/// Computes the Taproot key-spend sighash for an input.
+pub fn compute_taproot_sighash(
     tx: &Transaction,
     input_index: usize,
     prevouts: &[TxOut],
-    keypair: &Keypair,
-) -> Witness;
+) -> Result<[u8; 32]>;
+
+/// Computes the taproot-tweaked secret key for P2TR key-path spending.
+pub fn compute_tweaked_secret_key(
+    secp: &Secp256k1<secp256k1::All>,
+    sk: &secp256k1::SecretKey,
+) -> Result<secp256k1::SecretKey>;
+
+/// Builds a Taproot key-path spend witness from a Schnorr signature.
+#[must_use]
+pub fn build_keypath_witness(sig: &secp256k1::schnorr::Signature) -> Witness;
+
+/// Builds a simple spending transaction (1 input, 1 output).
+#[must_use]
+pub fn build_spending_tx(
+    prev_txid: bitcoin::Txid,
+    prev_vout: u32,
+    dest_script_pubkey: ScriptBuf,
+    dest_amount: Amount,
+) -> Transaction;
+
+/// Serializes a transaction to hex for broadcasting via Esplora.
+#[must_use]
+pub fn tx_to_hex(tx: &Transaction) -> String;
+
+/// Returns the P2TR address string for a given internal key (regtest).
+#[must_use]
+pub fn p2tr_address_string(
+    secp: &Secp256k1<secp256k1::All>,
+    internal_key: XOnlyPublicKey,
+) -> String;
 ```
 
-### HTLC Baseline (for comparison demo)
+### HTLC Baseline (htlc.rs)
 
 ```rust
-// htlc.rs
-/// Standard HTLC script for submarine swap comparison
-/// OP_IF
-///   OP_SHA256 <hash> OP_EQUALVERIFY <receiver_pubkey> OP_CHECKSIG
-/// OP_ELSE
-///   <timelock> OP_CSV OP_DROP <sender_pubkey> OP_CHECKSIG
-/// OP_ENDIF
+use bitcoin::secp256k1::{self, XOnlyPublicKey};
+use bitcoin::{ScriptBuf, Witness};
+
+/// Creates a standard HTLC script demonstrating the linkability problem.
+#[must_use]
 pub fn create_htlc_script(
     hash: &[u8; 32],
-    receiver_pubkey: &PublicKey,
-    sender_pubkey: &PublicKey,
+    receiver_pubkey: &XOnlyPublicKey,
+    sender_pubkey: &XOnlyPublicKey,
     timelock: u16,
 ) -> ScriptBuf;
 
-/// Claim HTLC by revealing preimage — THIS IS THE LINKABILITY PROBLEM
-/// The preimage appears on-chain and matches the Lightning payment hash
-pub fn claim_htlc(
-    tx: &Transaction,
+/// Creates a claim witness that reveals the preimage.
+/// **This is the linkability problem**: the preimage appears on-chain.
+#[must_use]
+pub fn create_htlc_claim_witness(
+    sig: &secp256k1::schnorr::Signature,
     preimage: &[u8; 32],
-    receiver_key: &SecretKey,
 ) -> Witness;
+
+/// Creates a refund witness for spending after timelock expires.
+#[must_use]
+pub fn create_htlc_refund_witness(sig: &secp256k1::schnorr::Signature) -> Witness;
+
+/// Computes SHA256 hash of preimage for HTLC construction.
+#[must_use]
+pub fn hash_preimage(preimage: &[u8; 32]) -> [u8; 32];
 ```
 
 ---
 
 ## Crate: protocol
 
-### Types
+### Cargo.toml
+
+```toml
+[package]
+name = "protocol"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+cl-crypto = { path = "../cl-crypto" }
+adaptor = { path = "../adaptor" }
+curv-kzen.workspace = true
+secp256k1.workspace = true
+class_group.workspace = true
+serde.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+rand.workspace = true
+```
+
+### Error Types (lib.rs)
 
 ```rust
-// types.rs
-use cl_crypto::{Puzzle, CLDLProof, TumblerKeyPair, CLSetup};
+use thiserror::Error;
+
+/// Errors that can occur during protocol execution.
+#[derive(Debug, Error)]
+pub enum ProtocolError {
+    #[error("CL crypto error: {0}")]
+    ClCrypto(#[from] cl_crypto::ClError),
+    #[error("adaptor error: {0}")]
+    Adaptor(#[from] adaptor::AdaptorError),
+    #[error("adaptor pre-signature verification failed")]
+    AdaptorVerificationFailed,
+    #[error("puzzle verification failed")]
+    PuzzleVerificationFailed,
+    #[error("type conversion error: {0}")]
+    ConversionError(String),
+}
+
+pub type Result<T> = std::result::Result<T, ProtocolError>;
+```
+
+### Types (types.rs)
+
+```rust
 use adaptor::schnorr::AdaptorSignature;
-use curv::elliptic::curves::{Scalar, Point, Secp256k1};
+use cl_crypto::puzzle::Puzzle;
+use curv::elliptic::curves::{Scalar, Secp256k1};
+use secp256k1::SecretKey;
 
-/// State for a single A2L swap
-pub struct SwapSession {
-    pub id: [u8; 32],
-    pub amount_sats: u64,
-    pub state: SwapState,
+/// Output of the Puzzle Promise sub-protocol (receiver side).
+#[derive(Clone, Debug)]
+pub struct PromiseOutput {
+    /// The puzzle randomized by the receiver.
+    pub randomized_puzzle: Puzzle,
+    /// Adaptor pre-signature on tx2 (tumbler -> receiver).
+    pub pre_sig: AdaptorSignature,
+    /// Blinding factor used by the receiver (kept secret from tumbler).
+    pub rho: Scalar<Secp256k1>,
 }
 
-pub enum SwapState {
-    /// Tumbler generated puzzle, waiting for receiver
-    PuzzleCreated {
-        puzzle: Puzzle,
-        secret_alpha: Scalar<Secp256k1>,  // known only to tumbler
-    },
-    /// Receiver randomized puzzle, created adaptor pre-sig on tx2
-    PuzzlePromiseComplete {
-        randomized_puzzle: Puzzle,
-        receiver_pre_sig: AdaptorSignature,  // on tx2 (tumbler→receiver)
-        rho: Scalar<Secp256k1>,              // receiver's randomness
-    },
-    /// Sender randomized again, created adaptor pre-sig on tx1
-    PuzzleSolverReady {
-        double_randomized_puzzle: Puzzle,
-        sender_pre_sig: AdaptorSignature,    // on tx1 (sender→tumbler)
-        rho_prime: Scalar<Secp256k1>,        // sender's randomness
-    },
-    /// Tumbler solved: decrypted, completed tx1, published
-    TumblerSolved {
-        tx1_txid: String,
-        recovered_secret: Scalar<Secp256k1>, // α + ρ + ρ'
-    },
-    /// Sender extracted secret from tx1, tumbler completes tx2
-    Complete {
-        tx1_txid: String,
-        tx2_txid: String,
-    },
+/// Output of the Puzzle Solver sub-protocol (sender side).
+#[derive(Clone, Debug)]
+pub struct SolverOutput {
+    /// The puzzle randomized again by the sender.
+    pub double_randomized_puzzle: Puzzle,
+    /// Adaptor pre-signature on tx1 (sender -> tumbler).
+    pub pre_sig: AdaptorSignature,
+    /// Blinding factor used by the sender (kept secret from tumbler).
+    pub rho_prime: Scalar<Secp256k1>,
+}
+
+/// Output of the tumbler's solution phase.
+#[derive(Clone, Debug)]
+pub struct TumblerSolution {
+    /// Completed BIP340 Schnorr signature for tx1.
+    pub tx1_signature: secp256k1::schnorr::Signature,
+    /// Decrypted secret from the double-randomized puzzle.
+    pub decrypted_secret: SecretKey,
 }
 ```
 
-### Puzzle Promise (tumbler.rs + promise.rs)
+### Puzzle Promise (promise.rs)
 
 ```rust
-// promise.rs — Receiver side of Puzzle Promise
+use crate::types::PromiseOutput;
+use crate::Result;
+use cl_crypto::keys::ClSetup;
+use cl_crypto::puzzle::Puzzle;
+use class_group::primitives::cl_dl_public_setup::PK;
+use secp256k1::{Secp256k1, SecretKey};
 
-/// Receiver verifies tumbler's puzzle and randomizes it
-pub fn receiver_process_puzzle(
-    setup: &CLSetup,
+/// Processes the Puzzle Promise sub-protocol from the receiver's perspective.
+///
+/// Steps:
+/// 1. Verify the tumbler's original puzzle (CLDL proof check)
+/// 2. Generate a random blinding factor rho
+/// 3. Randomize the puzzle
+/// 4. Create an adaptor pre-signature on tx2 locked to the randomized puzzle point
+pub fn receiver_process<C: secp256k1::Signing>(
+    secp: &Secp256k1<C>,
+    setup: &ClSetup,
     tumbler_pk: &PK,
-    puzzle: &Puzzle,           // from tumbler
-) -> Result<(Puzzle, Scalar<Secp256k1>)> {
-    // 1. Verify CLDL proof: puzzle.point and puzzle.ciphertext encode same value
-    verify_cldl(setup, tumbler_pk, &puzzle.point, &puzzle.ciphertext, &puzzle.proof)?;
-
-    // 2. Generate random ρ
-    let rho = Scalar::<Secp256k1>::random();
-
-    // 3. Randomize puzzle: Z' = PRand(Z, ρ)
-    let randomized = puzzle_rand(&setup.group, tumbler_pk, puzzle, &rho);
-
-    Ok((randomized, rho))
-}
-
-/// Receiver creates adaptor pre-signature on tx2 (tumbler→receiver payment)
-/// Adaptor point = randomized puzzle point T' = Y + ρ·G
-pub fn receiver_create_presig(
+    puzzle: &Puzzle,
     receiver_sk: &SecretKey,
-    tx2_sighash: &Message,
-    adaptor_point: &PublicKey,  // T' from randomized puzzle
-) -> AdaptorSignature {
-    adaptor_sign(secp, receiver_sk, tx2_sighash, adaptor_point)
-}
+    tx2_sighash: &[u8; 32],
+) -> Result<PromiseOutput>;
 ```
 
-```rust
-// solver.rs — Sender side of Puzzle Solver
+### Puzzle Solver (solver.rs)
 
-/// Sender receives randomized puzzle from receiver, randomizes again
-pub fn sender_process_puzzle(
-    setup: &CLSetup,
+```rust
+use crate::types::SolverOutput;
+use crate::Result;
+use adaptor::schnorr::AdaptorSignature;
+use cl_crypto::keys::ClSetup;
+use cl_crypto::puzzle::Puzzle;
+use class_group::primitives::cl_dl_public_setup::PK;
+use secp256k1::{Secp256k1, SecretKey};
+
+/// Processes the Puzzle Solver sub-protocol from the sender's perspective.
+///
+/// Steps:
+/// 1. Generate a random blinding factor rho'
+/// 2. Randomize the puzzle again
+/// 3. Create an adaptor pre-signature on tx1 locked to the double-randomized puzzle point
+pub fn sender_process<C: secp256k1::Signing>(
+    secp: &Secp256k1<C>,
+    setup: &ClSetup,
     tumbler_pk: &PK,
     randomized_puzzle: &Puzzle,
-) -> Result<(Puzzle, Scalar<Secp256k1>)> {
-    // 1. Verify CLDL proof on randomized puzzle
-    verify_cldl(setup, tumbler_pk, ...)?;
-
-    // 2. Generate random ρ'
-    let rho_prime = Scalar::<Secp256k1>::random();
-
-    // 3. Double-randomize: Z'' = PRand(Z', ρ')
-    let double_randomized = puzzle_rand(&setup.group, tumbler_pk, randomized_puzzle, &rho_prime);
-
-    Ok((double_randomized, rho_prime))
-}
-
-/// Sender creates adaptor pre-signature on tx1 (sender→tumbler payment)
-pub fn sender_create_presig(
     sender_sk: &SecretKey,
-    tx1_sighash: &Message,
-    adaptor_point: &PublicKey,  // T'' from double-randomized puzzle
-) -> AdaptorSignature {
-    adaptor_sign(secp, sender_sk, tx1_sighash, adaptor_point)
-}
+    tx1_sighash: &[u8; 32],
+) -> Result<SolverOutput>;
+
+/// Extracts the adaptor secret from a completed signature.
+pub fn sender_extract(
+    completed_sig: &secp256k1::schnorr::Signature,
+    pre_sig: &AdaptorSignature,
+) -> Result<SecretKey>;
 ```
 
+### Tumbler Role (tumbler.rs)
+
 ```rust
-// tumbler.rs — Tumbler role
+use crate::types::TumblerSolution;
+use crate::Result;
+use adaptor::schnorr::AdaptorSignature;
+use cl_crypto::keys::{ClSetup, TumblerKeyPair};
+use cl_crypto::puzzle::Puzzle;
+use curv::elliptic::curves::{Scalar, Secp256k1};
 
-/// Tumbler solves sender's puzzle, completes tx1 signature, publishes
-pub fn tumbler_solve_and_complete(
-    setup: &CLSetup,
-    tumbler_sk: &SK,
-    double_randomized_puzzle: &Puzzle,
+/// Creates a new puzzle for a random secret alpha.
+/// Returns the puzzle and the secret alpha.
+#[must_use]
+pub fn create_puzzle(setup: &ClSetup, kp: &TumblerKeyPair) -> (Puzzle, Scalar<Secp256k1>);
+
+/// Solves a double-randomized puzzle and completes the sender's adaptor signature.
+/// Returns the completed BIP340 signature and the decrypted secret.
+pub fn solve_and_complete(
+    setup: &ClSetup,
+    kp: &TumblerKeyPair,
+    puzzle: &Puzzle,
     sender_pre_sig: &AdaptorSignature,
-) -> (schnorr::Signature, Scalar<Secp256k1>) {
-    // 1. PSolve: decrypt to get α + ρ + ρ'
-    let secret = puzzle_solve(&setup.group, tumbler_sk, double_randomized_puzzle);
+) -> Result<TumblerSolution>;
 
-    // 2. Complete adaptor signature on tx1
-    let completed_sig = adaptor_complete(sender_pre_sig, &secret.to_secret_key());
-
-    (completed_sig, secret)
-}
-
-/// After tx1 is published, tumbler uses original α to complete tx2
-pub fn tumbler_complete_tx2(
+/// Completes the receiver's adaptor signature using alpha + rho.
+pub fn complete_tx2(
     alpha: &Scalar<Secp256k1>,
-    rho: &Scalar<Secp256k1>,         // from puzzle promise
+    rho: &Scalar<Secp256k1>,
     receiver_pre_sig: &AdaptorSignature,
-) -> schnorr::Signature {
-    // Tumbler knows α and can compute α + ρ
-    let secret = alpha + rho;
-    adaptor_complete(receiver_pre_sig, &secret.to_secret_key())
-}
+) -> Result<secp256k1::schnorr::Signature>;
 ```
 
 ---
 
 ## Crate: cli
 
-### Commands
+### Cargo.toml
+
+```toml
+[package]
+name = "tortuga-cli"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "tortuga"
+path = "src/main.rs"
+
+[dependencies]
+cl-crypto = { path = "../cl-crypto" }
+adaptor = { path = "../adaptor" }
+protocol = { path = "../protocol" }
+tortuga-bitcoin = { path = "../bitcoin" }
+clap.workspace = true
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+hex.workspace = true
+secp256k1.workspace = true
+curv-kzen.workspace = true
+class_group.workspace = true
+rand.workspace = true
+bitcoin.workspace = true
+sha2.workspace = true
+```
+
+### Commands (main.rs)
 
 ```rust
-// main.rs
+use clap::Parser;
+
 #[derive(Parser)]
+#[command(name = "tortuga", about = "Anonymous Atomic Swaps via A2L")]
 enum Cmd {
     /// Setup: initialize Nigiri, generate keys, fund wallets
     Setup,
 
-    /// Run baseline HTLC submarine swap (linkable — for comparison)
+    /// Run baseline HTLC submarine swap (linkable -- for comparison)
     HtlcSwap {
         #[arg(long, default_value = "100000")]
         amount_sats: u64,
+        /// Broadcast real transactions on Nigiri regtest
+        #[arg(long)]
+        on_chain: bool,
     },
 
     /// Run A2L anonymous atomic swap (unlinkable)
     A2lSwap {
         #[arg(long, default_value = "100000")]
         amount_sats: u64,
+        /// Broadcast real transactions on Nigiri regtest
+        #[arg(long)]
+        on_chain: bool,
     },
 
     /// Compare: show HTLC hash linkability vs A2L unlinkability
-    Compare,
+    Compare {
+        /// Broadcast real transactions on Nigiri regtest
+        #[arg(long)]
+        on_chain: bool,
+    },
 }
 ```
+
+### Sub-modules
+
+- **setup.rs**: Checks Nigiri connectivity, mines initial blocks, funds test wallets via faucet
+- **swap_a2l.rs**: Full A2L protocol demo (in-memory `run()` and on-chain `run_on_chain()`)
+- **swap_htlc.rs**: HTLC baseline swap demo (in-memory and on-chain variants)
 
 ### Demo Output (Target)
 
@@ -854,33 +1157,35 @@ nigiri rpc generatetoaddress 1 $(nigiri rpc getnewaddress)
 ### ZenGo-X/class (CL Encryption)
 
 - **Repo**: `github.com/ZenGo-X/class`
-- **License**: GPL-3.0 (⚠️ consider for release)
-- **Rust version**: Requires nightly or stable 1.70+
+- **License**: GPL-3.0
+- **Rust version**: Requires stable 1.70+
 - **System dep**: GMP (libgmp); PARI/GP is vendored and compiled automatically by build.rs
 - **Key module**: `primitives::cl_dl_public_setup`
 - **Functions we use**:
-  - `CLGroup::new_from_setup(&discriminant_bits)` → class group params
-  - `KeyPair::random(&group)` → CL keypair
-  - `encrypt(&group, &pk, &scalar)` → (ciphertext, randomness)
-  - `decrypt(&group, &sk, &ciphertext)` → scalar
-  - `eval_sum(&group, &ct1, &ct2)` → ciphertext addition
-  - `CLDLProof::prove(...)` → CLDL ZK proof
-  - `proof.verify(...)` → verification
+  - `CLGroup::new_from_setup(&security_param, &seed)` - class group params
+  - `group.keygen()` - CL keypair
+  - `encrypt(&group, &pk, &scalar)` - (ciphertext, randomness)
+  - `decrypt(&group, &sk, &ciphertext)` - scalar
+  - `eval_sum(&ct1, &ct2)` - ciphertext addition
+  - `verifiably_encrypt(...)` - ciphertext + CLDL proof
+  - `CLDLProof::verify(...)` - verification
 
-**⚠️ KNOWN ISSUES**:
-1. PARI `pari_init()` must be called once per thread — the crate handles this internally
-2. Not thread-safe by default — run tests with `--test-threads=1`
-3. Build requires GMP — on ARM macOS: `brew install gmp` and set `LIBRARY_PATH="/opt/homebrew/lib:$LIBRARY_PATH"`
+**Known Issues**:
+1. PARI `pari_init()` must be called once per thread - the crate handles this internally
+2. Not thread-safe by default - run tests with `--test-threads=1`
+3. Build requires GMP - on ARM macOS: `brew install gmp` and set `LIBRARY_PATH="/opt/homebrew/lib:$LIBRARY_PATH"`
 
 ### secp256k1 (Adaptor Signatures)
 
 - **Repo**: `github.com/rust-bitcoin/rust-secp256k1`
-- The base `secp256k1` crate does NOT include adaptor signatures
-- Options:
-  1. **Manual implementation** using `secp256k1::SecretKey`, `PublicKey`, scalar arithmetic (recommended for learning)
-  2. **secp256k1-zkp** crate (Elements/Blockstream fork with adaptor sig module) — heavier dependency
+- **Version**: 0.29.x with `global-context` and `rand-std` features
+- Adaptor signatures are implemented manually using `SecretKey`, `PublicKey`, and `Scalar` arithmetic
+- BIP340 challenge computation uses tagged hashes via `sha2`
 
-**Recommendation**: Implement manually. Adaptor signatures are ~50 lines of scalar math on top of BIP340. The `secp256k1` crate exposes enough primitives.
+The adaptor signature implementation is ~500 lines including tests, using:
+- `SecretKey::add_tweak()` for scalar addition
+- `PublicKey::combine()` for point addition
+- `Scalar::from(SecretKey)` for scalar operations
 
 ### rust-bitcoin (Transaction Construction)
 
@@ -899,7 +1204,7 @@ nigiri rpc generatetoaddress 1 $(nigiri rpc getnewaddress)
 ```rust
 #[test]
 fn cl_encrypt_decrypt_roundtrip() {
-    let setup = CLSetup::new();
+    let setup = ClSetup::new();
     let kp = TumblerKeyPair::generate(&setup);
     let msg = Scalar::<Secp256k1>::random();
 
@@ -916,26 +1221,40 @@ fn cl_encrypt_decrypt_roundtrip() {
 #[test]
 fn adaptor_sign_verify_complete_extract() {
     let secp = Secp256k1::new();
-    let (sk, pk) = secp.generate_keypair(&mut rand::thread_rng());
-    let msg = Message::from_digest([0xab; 32]);
+    let mut rng = rand::thread_rng();
+
+    // Signer's keypair
+    let sk = SecretKey::new(&mut rng);
+    let pk = PublicKey::from_secret_key(&secp, &sk);
 
     // Adaptor secret and point
-    let t = SecretKey::new(&mut rand::thread_rng());
-    let T = PublicKey::from_secret_key(&secp, &t);
+    let adaptor_secret = SecretKey::new(&mut rng);
+    let adaptor_point = PublicKey::from_secret_key(&secp, &adaptor_secret);
+
+    let msg = [0xab; 32];
 
     // Sign
-    let pre_sig = adaptor_sign(&secp, &sk, &msg, &T);
+    let pre_sig = adaptor_sign(&secp, &sk, &msg, &adaptor_point)
+        .expect("adaptor sign should succeed");
 
     // Verify pre-signature
-    assert!(adaptor_verify(&secp, &pk, &msg, &T, &pre_sig));
+    assert!(adaptor_verify(&secp, &pk, &msg, &adaptor_point, &pre_sig));
 
     // Complete (reveals secret via published sig)
-    let sig = adaptor_complete(&pre_sig, &t);
-    assert!(secp.verify_schnorr(&sig, &msg, &pk.x_only_public_key().0).is_ok());
+    let sig = adaptor_complete(&pre_sig, &adaptor_secret)
+        .expect("adaptor complete should succeed");
+
+    let (x_only_pk, _) = pk.x_only_public_key();
+    let msg_obj = secp256k1::Message::from_digest(msg);
+    secp.verify_schnorr(&sig, &msg_obj, &x_only_pk)
+        .expect("BIP340 signature should verify");
 
     // Extract secret from completed sig
-    let extracted_t = adaptor_extract(&sig, &pre_sig);
-    assert_eq!(t, extracted_t);
+    let extracted = adaptor_extract(&sig, &pre_sig)
+        .expect("adaptor extract should succeed");
+
+    let extracted_point = PublicKey::from_secret_key(&secp, &extracted);
+    assert_eq!(adaptor_point, extracted_point);
 }
 ```
 
@@ -944,22 +1263,22 @@ fn adaptor_sign_verify_complete_extract() {
 ```rust
 #[test]
 fn puzzle_gen_rand_solve() {
-    let setup = CLSetup::new();
+    let setup = ClSetup::new();
     let tumbler_kp = TumblerKeyPair::generate(&setup);
 
-    // Tumbler generates puzzle with secret α
+    // Tumbler generates puzzle with secret alpha
     let alpha = Scalar::<Secp256k1>::random();
     let puzzle = puzzle_gen(&setup.group, &tumbler_kp.pk, &alpha);
 
-    // Receiver randomizes with ρ
+    // Receiver randomizes with rho
     let rho = Scalar::<Secp256k1>::random();
     let randomized = puzzle_rand(&setup.group, &tumbler_kp.pk, &puzzle, &rho);
 
-    // Sender randomizes again with ρ'
+    // Sender randomizes again with rho'
     let rho_prime = Scalar::<Secp256k1>::random();
     let double_rand = puzzle_rand(&setup.group, &tumbler_kp.pk, &randomized, &rho_prime);
 
-    // Tumbler solves: recovers α + ρ + ρ'
+    // Tumbler solves: recovers alpha + rho + rho'
     let solved = puzzle_solve(&setup.group, &tumbler_kp.sk, &double_rand);
     assert_eq!(solved, alpha.clone() + rho.clone() + rho_prime.clone());
 
@@ -978,69 +1297,62 @@ fn puzzle_gen_rand_solve() {
 #[tokio::test]
 async fn full_a2l_swap_on_regtest() {
     // 0. Setup
+    let secp = Secp256k1::new();
+    let mut rng = rand::thread_rng();
     let esplora = EsploraClient::new_nigiri();
-    let cl_setup = CLSetup::new();
-    let tumbler_cl = TumblerKeyPair::generate(&cl_setup);
+    let cl_setup = ClSetup::new();
+    let tumbler_kp = TumblerKeyPair::generate(&cl_setup);
 
-    let sender_kp = Keypair::new(&secp, &mut rng);
-    let tumbler_kp = Keypair::new(&secp, &mut rng);
-    let receiver_kp = Keypair::new(&secp, &mut rng);
+    let sender_sk = SecretKey::new(&mut rng);
+    let receiver_sk = SecretKey::new(&mut rng);
 
     // 1. Tumbler: generate puzzle
-    let alpha = Scalar::random();
-    let puzzle = puzzle_gen(&cl_setup.group, &tumbler_cl.pk, &alpha);
+    let (puzzle, alpha) = tumbler::create_puzzle(&cl_setup, &tumbler_kp);
 
-    // 2. Receiver: verify + randomize puzzle
-    assert!(verify_cldl(&cl_setup, &tumbler_cl.pk, &puzzle));
-    let rho = Scalar::random();
-    let rand_puzzle = puzzle_rand(&cl_setup.group, &tumbler_cl.pk, &puzzle, &rho);
+    // 2. Receiver: verify + randomize puzzle via Puzzle Promise
+    let tx2_sighash = compute_taproot_sighash(&tx2, 0, &[receiver_prevout])?;
+    let promise_output = promise::receiver_process(
+        &secp, &cl_setup, &tumbler_kp.pk, &puzzle, &receiver_sk, &tx2_sighash
+    )?;
+    let adaptor_T2 = curv_point_to_public_key(&promise_output.randomized_puzzle.point)?;
 
-    // 3. Receiver: create adaptor pre-sig on tx2 (tumbler→receiver)
-    let tx2 = build_p2tr_tx(&tumbler_kp, &receiver_kp, 50_000);
-    let tx2_sighash = compute_taproot_sighash(&tx2, 0, &prevouts);
-    let adaptor_T2 = rand_puzzle.point.to_pubkey();  // T' = (α+ρ)·G
-    let receiver_presig = adaptor_sign(&secp, &receiver_kp.secret_key(), &tx2_sighash, &adaptor_T2);
+    // 3. Sender: double-randomize via Puzzle Solver
+    let tx1_sighash = compute_taproot_sighash(&tx1, 0, &[sender_prevout])?;
+    let solver_output = solver::sender_process(
+        &secp, &cl_setup, &tumbler_kp.pk, &promise_output.randomized_puzzle, &sender_sk, &tx1_sighash
+    )?;
+    let adaptor_T1 = curv_point_to_public_key(&solver_output.double_randomized_puzzle.point)?;
 
-    // 4. Sender: receive rand_puzzle, randomize again
-    let rho_prime = Scalar::random();
-    let double_rand_puzzle = puzzle_rand(&cl_setup.group, &tumbler_cl.pk, &rand_puzzle, &rho_prime);
+    // 4. Tumbler: solve puzzle, complete tx1, broadcast
+    let solution = tumbler::solve_and_complete(
+        &cl_setup, &tumbler_kp, &solver_output.double_randomized_puzzle, &solver_output.pre_sig
+    )?;
+    let mut tx1_signed = tx1;
+    tx1_signed.input[0].witness = build_keypath_witness(&solution.tx1_signature);
+    let tx1_txid = esplora.broadcast(&tx_to_hex(&tx1_signed)).await?;
 
-    // 5. Sender: create adaptor pre-sig on tx1 (sender→tumbler)
-    let tx1 = build_p2tr_tx(&sender_kp, &tumbler_kp, 50_000);
-    let tx1_sighash = compute_taproot_sighash(&tx1, 0, &prevouts);
-    let adaptor_T1 = double_rand_puzzle.point.to_pubkey();  // T'' = (α+ρ+ρ')·G
-    let sender_presig = adaptor_sign(&secp, &sender_kp.secret_key(), &tx1_sighash, &adaptor_T1);
+    // 5. Mine a block
+    mine_blocks(1).await?;
 
-    // 6. Tumbler: solve puzzle, complete tx1, broadcast
-    let solved_secret = puzzle_solve(&cl_setup.group, &tumbler_cl.sk, &double_rand_puzzle);
-    // solved_secret = α + ρ + ρ'
-    let tx1_sig = adaptor_complete(&sender_presig, &solved_secret.to_secret_key());
-    let tx1_with_witness = attach_keypath_witness(&tx1, &tx1_sig);
-    let tx1_txid = esplora.broadcast(&tx1_with_witness.to_hex()).await?;
+    // 6. Sender: extract secret from published tx1
+    let extracted = solver::sender_extract(&solution.tx1_signature, &solver_output.pre_sig)?;
 
-    // 7. Mine a block
-    mine_block();
+    // 7. Tumbler: complete tx2 using alpha + rho
+    let tx2_sig = tumbler::complete_tx2(&alpha, &promise_output.rho, &promise_output.pre_sig)?;
+    let mut tx2_signed = tx2;
+    tx2_signed.input[0].witness = build_keypath_witness(&tx2_sig);
+    let tx2_txid = esplora.broadcast(&tx_to_hex(&tx2_signed)).await?;
 
-    // 8. Sender: extract secret from published tx1
-    let extracted = adaptor_extract(&tx1_sig, &sender_presig);
-    // extracted = α + ρ + ρ' (but sender cannot derive α alone)
-
-    // 9. Tumbler: complete tx2 using α + ρ
-    let alpha_plus_rho = alpha + rho;
-    let tx2_sig = adaptor_complete(&receiver_presig, &alpha_plus_rho.to_secret_key());
-    let tx2_with_witness = attach_keypath_witness(&tx2, &tx2_sig);
-    let tx2_txid = esplora.broadcast(&tx2_with_witness.to_hex()).await?;
-
-    // 10. Verify unlinkability
+    // 8. Verify unlinkability
     // Adaptor points on tx1 and tx2 are DIFFERENT
     assert_ne!(adaptor_T1, adaptor_T2);
     // Both transactions look like normal Taproot keyspend (no script, no hash)
-    // Tumbler sees different points — cannot link sender to receiver
+    // Tumbler sees different points - cannot link sender to receiver
 
-    println!("✅ A2L swap complete!");
-    println!("   tx1 adaptor point: {}", adaptor_T1);
-    println!("   tx2 adaptor point: {}", adaptor_T2);
-    println!("   Tumbler cannot link these.");
+    println!("A2L swap complete!");
+    println!("  tx1 adaptor point: {:?}", adaptor_T1);
+    println!("  tx2 adaptor point: {:?}", adaptor_T2);
+    println!("  Tumbler cannot link these.");
 }
 ```
 

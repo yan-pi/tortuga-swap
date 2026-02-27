@@ -110,25 +110,25 @@ LIBRARY_PATH="/opt/homebrew/lib:$LIBRARY_PATH" cargo run --bin tortuga -- setup
 ## Protocol Flow
 
 ```
-Sender (Alice)              Tumbler (T)              Receiver (Bob)
-     |                          |                          |
+Sender (Alice)              Tumbler (T)                Receiver (Bob)
+     |                          |                           |
      |                     1. Generate secret alpha         |
      |                     2. Create puzzle Z=(Y,c)         |
      |                          |--- puzzle + proof ------->|
      |                          |                     3. Verify proof
      |                          |                     4. Randomize: Z'=PRand(Z,rho)
      |                          |<-- adaptor pre-sig tx2 ---|
-     |                          |                          |
-     |<-- randomized puzzle Z' -|                          |
-5. Randomize again: Z''=PRand(Z',rho')                    |
-6. Adaptor pre-sign tx1 ------>|                          |
+     |                          |                           |
+     |<-- randomized puzzle Z' -|                           |
+5. Randomize again: Z''=PRand(Z',rho')                      |
+6. Adaptor pre-sign tx1 ------>|                            |
      |                     7. PSolve: decrypt alpha+rho+rho'
      |                     8. Complete tx1 sig, broadcast   |
-     |                          |                          |
-9. Extract secret from tx1     |                          |
+     |                          |                           |
+9. Extract secret from tx1      |                           |
      |                     10. Complete tx2 (using alpha+rho)
      |                          |--- completed tx2 -------->|
-     |                          |                          |
+     |                          |                           |
 
 Unlinkability: tx1 adaptor point != tx2 adaptor point
               (randomized by rho' and rho respectively)

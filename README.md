@@ -25,9 +25,9 @@ A2L swap:
 ### Prerequisites
 
 - Rust 1.70+
-- [PARI/GP](https://pari.math.u-bordeaux.fr/) (for CL encryption)
-  - macOS: `brew install pari`
-  - Ubuntu: `apt install libpari-dev`
+- [GMP](https://gmplib.org/) (required by CL encryption class groups)
+  - macOS: `brew install gmp`
+  - Ubuntu: `apt install libgmp-dev`
 - [Nigiri](https://github.com/vulpemventures/nigiri) + Docker (for on-chain demo only)
 
 ### Run Tests
@@ -94,7 +94,7 @@ LIBRARY_PATH="/opt/homebrew/lib:$LIBRARY_PATH" cargo run --bin tortuga -- setup
              Complete/Extract   - convert (curv <-> secp256k1)
               └───────────┬──────────┘
                    External deps
-              secp256k1 | rust-bitcoin | ZenGo-X/class (PARI)
+              secp256k1 | rust-bitcoin | ZenGo-X/class (GMP)
 ```
 
 ### Crates
@@ -140,6 +140,5 @@ Unlinkability: tx1 adaptor point != tx2 adaptor point
 |----------|-------------|
 | [A2L Paper](https://eprint.iacr.org/2019/589) | Protocol specification (IEEE S&P 2021) |
 | [ZenGo-X/class](https://github.com/ZenGo-X/class) | CL encryption Rust crate |
-| [TANOS](https://github.com/GustavoStingelin/tanos) | Adaptor signature reference (Go) |
 | [rust-bitcoin](https://github.com/rust-bitcoin/rust-bitcoin) | Bitcoin transaction construction |
 | [Nigiri](https://github.com/vulpemventures/nigiri) | Regtest environment |

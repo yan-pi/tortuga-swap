@@ -144,7 +144,7 @@ Sender (Alice)                               Tumbler
 │ - extract│  (wraps ZenGo-X/class)       │               │
 ├──────────┴───────────────────────────────┤               │
 │        External dependencies             │               │
-│  secp256k1      |  ZenGo-X/class (PARI) │               │
+│  secp256k1      |  ZenGo-X/class (GMP)  │               │
 │  rust-bitcoin   |  curv-kzen             │               │
 └──────────────────────────────────────────┴───────────────┘
 ```
@@ -232,7 +232,7 @@ members = [
 secp256k1 = { version = "0.29", features = ["global-context", "rand-std"] }
 bitcoin = { version = "0.32", features = ["rand-std"] }
 
-# CL encryption (class groups via PARI)
+# CL encryption (class groups via GMP)
 class_group = { git = "https://github.com/ZenGo-X/class", branch = "master" }
 curv-kzen = { version = "0.10", default-features = false }
 
@@ -392,10 +392,9 @@ The ZenGo-X/class crate already provides most of these operations. Key files to 
 | `verify_cldl` | `cl_dl_public_setup::CLDLProof::verify()` | Verification |
 | Homomorphic add | `cl_dl_public_setup::eval_sum()` | Ciphertext addition |
 
-**⚠️ CRITICAL**: ZenGo-X/class depends on PARI/GP (C library). Ensure PARI is installed:
-- macOS: `brew install pari`
-- Ubuntu: `apt install libpari-dev`
-- The crate vendors PARI source in `depend/pari/` as fallback
+**⚠️ CRITICAL**: ZenGo-X/class depends on GMP (GNU Multiple Precision Arithmetic) and vendors PARI/GP source internally (compiled automatically by build.rs). Only GMP needs to be installed:
+- macOS: `brew install gmp`
+- Ubuntu: `apt install libgmp-dev`
 
 ---
 
@@ -474,10 +473,6 @@ Extract(sig=(R, s), pre_sig=(R', s')):
 ```
 
 **⚠️ SECURITY**: Nonce `k` MUST be generated using RFC 6979 deterministic nonce or a CSPRNG. Never reuse nonces. Side-channel: use constant-time scalar operations from secp256k1 crate.
-
-### Reference
-
-TANOS project (`github.com/GustavoStingelin/tanos`) implements this in Go. Port the logic to Rust using the `secp256k1` crate's `SecretKey` and `PublicKey` types for constant-time scalar arithmetic.
 
 ---
 
@@ -861,7 +856,7 @@ nigiri rpc generatetoaddress 1 $(nigiri rpc getnewaddress)
 - **Repo**: `github.com/ZenGo-X/class`
 - **License**: GPL-3.0 (⚠️ consider for release)
 - **Rust version**: Requires nightly or stable 1.70+
-- **System dep**: PARI/GP (vendored in `depend/pari/`, auto-compiled by build.rs)
+- **System dep**: GMP (libgmp); PARI/GP is vendored and compiled automatically by build.rs
 - **Key module**: `primitives::cl_dl_public_setup`
 - **Functions we use**:
   - `CLGroup::new_from_setup(&discriminant_bits)` → class group params
@@ -874,8 +869,8 @@ nigiri rpc generatetoaddress 1 $(nigiri rpc getnewaddress)
 
 **⚠️ KNOWN ISSUES**:
 1. PARI `pari_init()` must be called once per thread — the crate handles this internally
-2. Not thread-safe by default — wrap in Mutex if using from multiple threads
-3. Build may fail on ARM macOS — if so, `brew install pari` and set `PARI_LIB_DIR`
+2. Not thread-safe by default — run tests with `--test-threads=1`
+3. Build requires GMP — on ARM macOS: `brew install gmp` and set `LIBRARY_PATH="/opt/homebrew/lib:$LIBRARY_PATH"`
 
 ### secp256k1 (Adaptor Signatures)
 
@@ -884,7 +879,6 @@ nigiri rpc generatetoaddress 1 $(nigiri rpc getnewaddress)
 - Options:
   1. **Manual implementation** using `secp256k1::SecretKey`, `PublicKey`, scalar arithmetic (recommended for learning)
   2. **secp256k1-zkp** crate (Elements/Blockstream fork with adaptor sig module) — heavier dependency
-  3. Port from TANOS Go implementation
 
 **Recommendation**: Implement manually. Adaptor signatures are ~50 lines of scalar math on top of BIP340. The `secp256k1` crate exposes enough primitives.
 
@@ -1059,7 +1053,6 @@ async fn full_a2l_swap_on_regtest() {
 | A2L paper | `eprint.iacr.org/2019/589` | Protocol specification (read Section 4) |
 | A2L C++ reference | `github.com/etairi/A2L` | Protocol flow reference |
 | ZenGo-X/class | `github.com/ZenGo-X/class` | CL encryption Rust crate |
-| TANOS (Go adaptors) | `github.com/GustavoStingelin/tanos` | Adaptor sig logic reference |
 | Blockstream scriptless-scripts | `github.com/BlockstreamResearch/scriptless-scripts` | Adaptor swap theory |
 | rust-bitcoin | `github.com/rust-bitcoin/rust-bitcoin` | Transaction construction |
 | Nigiri | `github.com/vulpemventures/nigiri` | Regtest environment |

@@ -25,7 +25,7 @@ sleep 5
 
 # Verify Esplora is responding
 for i in {1..10}; do
-    if curl -s http://localhost:3000/api/blocks/tip/height > /dev/null 2>&1; then
+    if curl -s http://localhost:3000/blocks/tip/height > /dev/null 2>&1; then
         echo "Esplora API is ready."
         break
     fi
@@ -36,7 +36,7 @@ done
 echo ""
 echo "=== Nigiri Ready ==="
 echo "  Esplora API:  http://localhost:3000"
-echo "  Esplora UI:   http://localhost:5000"
+echo "  Esplora UI:   http://localhost:5005"
 echo "  Bitcoin RPC:  localhost:18443"
 echo ""
 echo "Run the demo:"

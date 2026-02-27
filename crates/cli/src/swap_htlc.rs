@@ -192,6 +192,14 @@ pub async fn run_on_chain_and_report(amount_sats: u64) -> Result<HtlcReport> {
     println!("  Sender UTXO:  {}:{}", &sender_utxo.txid[..16], sender_utxo.vout);
     println!("  Tumbler UTXO: {}:{}", &tumbler_utxo.txid[..16], tumbler_utxo.vout);
 
+    // Display initial balances
+    let sender_balance = esplora.get_balance(&sender_addr).await.unwrap_or(0);
+    let tumbler_balance = esplora.get_balance(&tumbler_addr).await.unwrap_or(0);
+    println!();
+    println!("  Wallet balances (before swap):");
+    println!("    Sender:  {} sats", sender_balance);
+    println!("    Tumbler: {} sats", tumbler_balance);
+
     // Build tx1: sender -> HTLC-locked P2TR (receiver claims with preimage)
     let (htlc_txout1, _spend_info1) =
         create_p2tr_with_refund(&secp, receiver_xonly, sender_xonly, timelock, amount);
@@ -278,6 +286,16 @@ pub async fn run_on_chain_and_report(amount_sats: u64) -> Result<HtlcReport> {
     println!("  HTLC hash in tx2: {}...", &hash_hex[..16]);
 
     mine_blocks(1).await?;
+
+    // Display final balances
+    // Wait for electrs to index
+    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+    let sender_final = esplora.get_balance(&sender_addr).await.unwrap_or(0);
+    let tumbler_final = esplora.get_balance(&tumbler_addr).await.unwrap_or(0);
+    println!();
+    println!("  Wallet balances (after swap):");
+    println!("    Sender:  {} sats", sender_final);
+    println!("    Tumbler: {} sats", tumbler_final);
 
     println!("Step 5: Linkability analysis");
     println!("  SAME hash {} in BOTH transactions", &hash_hex[..16]);

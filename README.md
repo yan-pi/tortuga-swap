@@ -57,7 +57,7 @@ LIBRARY_PATH="/opt/homebrew/lib:$LIBRARY_PATH" cargo run --bin tortuga -- compar
 # Run comparison with real Bitcoin transactions
 ./scripts/demo-compare.sh --on-chain
 
-# View transactions in Esplora: http://localhost:5000
+# View transactions in Esplora: http://localhost:5005
 ```
 
 ### Individual Commands

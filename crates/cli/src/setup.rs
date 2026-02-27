@@ -62,7 +62,7 @@ pub async fn run() -> Result<()> {
     println!();
     println!("=== Setup Complete ===");
     println!("Esplora API: http://localhost:3000");
-    println!("Explorer UI: http://localhost:5000");
+    println!("Explorer UI: http://localhost:5005");
 
     Ok(())
 }

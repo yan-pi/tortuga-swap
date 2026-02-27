@@ -1,0 +1,15 @@
+[package]
+name = "protocol"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+cl-crypto = { path = "../cl-crypto" }
+adaptor = { path = "../adaptor" }
+curv-kzen.workspace = true
+secp256k1.workspace = true
+class_group.workspace = true
+serde.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+rand.workspace = true

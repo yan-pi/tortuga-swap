@@ -272,6 +272,14 @@ pub async fn run_on_chain_and_report(amount_sats: u64) -> Result<A2lReport> {
         receiver_utxo.vout
     );
 
+    // Display initial balances
+    let sender_balance = esplora.get_balance(&sender_addr).await.unwrap_or(0);
+    let receiver_balance = esplora.get_balance(&receiver_addr).await.unwrap_or(0);
+    println!();
+    println!("  Wallet balances (before swap):");
+    println!("    Sender:   {} sats", sender_balance);
+    println!("    Receiver: {} sats", receiver_balance);
+
     // Build unsigned spending transactions
     let fee = bitcoin::Amount::from_sat(500);
     let dest_txout = create_p2tr_output(&secp, dest_xonly, bitcoin::Amount::from_sat(amount_sats));
@@ -416,6 +424,17 @@ pub async fn run_on_chain_and_report(amount_sats: u64) -> Result<A2lReport> {
 
     mine_blocks(1).await?;
 
+    // Display final balances
+    let dest_addr_display = p2tr_address_string(&secp, dest_xonly);
+    let sender_final = esplora.get_balance(&sender_addr).await.unwrap_or(0);
+    let receiver_final = esplora.get_balance(&receiver_addr).await.unwrap_or(0);
+    let dest_final = esplora.get_balance(&dest_addr_display).await.unwrap_or(0);
+    println!();
+    println!("  Wallet balances (after swap):");
+    println!("    Sender:      {} sats", sender_final);
+    println!("    Receiver:    {} sats", receiver_final);
+    println!("    Destination: {} sats", dest_final);
+
     // Step 9: Unlinkability
     println!();
     println!("Step 9: Unlinkability verification");
@@ -423,8 +442,8 @@ pub async fn run_on_chain_and_report(amount_sats: u64) -> Result<A2lReport> {
     println!("  tx2 adaptor point: {}", tx2_adaptor_hex);
     assert_ne!(tx1_adaptor_hex, tx2_adaptor_hex);
     println!("  UNLINKABLE: different points, normal Taproot keyspends on-chain");
-    println!("  View at: http://localhost:5000/tx/{}", tx1_txid);
-    println!("  View at: http://localhost:5000/tx/{}", tx2_txid);
+    println!("  View at: http://localhost:5005/tx/{}", tx1_txid);
+    println!("  View at: http://localhost:5005/tx/{}", tx2_txid);
 
     Ok(A2lReport {
         tx1_adaptor_point: tx1_adaptor_hex,

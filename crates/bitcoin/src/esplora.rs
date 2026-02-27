@@ -179,6 +179,21 @@ impl EsploraClient {
         )))
     }
 
+    /// Gets the total balance (sum of UTXO values) for an address.
+    ///
+    /// # Arguments
+    /// * `address` - Bitcoin address to query
+    ///
+    /// # Returns
+    /// Total balance in satoshis.
+    ///
+    /// # Errors
+    /// Returns `BitcoinError::Esplora` if query fails.
+    pub async fn get_balance(&self, address: &str) -> Result<u64> {
+        let utxos = self.get_utxos(address).await?;
+        Ok(utxos.iter().map(|u| u.value).sum())
+    }
+
     /// Gets the current block height.
     ///
     /// # Returns

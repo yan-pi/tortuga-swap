@@ -139,7 +139,7 @@ async fn run_compare(on_chain: bool) -> Result<()> {
 
     if on_chain {
         println!();
-        println!("View transactions at: http://localhost:5000");
+        println!("View transactions at: http://localhost:5005");
     }
 
     println!();

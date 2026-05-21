@@ -1,0 +1,350 @@
+%==============================================================================
+% The Cost of Unlinkability:
+% An Empirical Evaluation of A2L Anonymous Atomic Swaps on Bitcoin Taproot
+%
+% Target venue : ESEM 20XX (short paper, 4-6 pages, English)
+% Template     : ACM acmart, sigconf style (ESEM uses ACM proceedings format)
+% Compile with : latexmk -pdf paper.tex
+%==============================================================================
+\documentclass[sigconf,nonacm,natbib=false]{acmart}
+
+% ----- packages --------------------------------------------------------------
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{booktabs}
+\usepackage{siunitx}
+\usepackage{microtype}
+\usepackage{xspace}
+\usepackage{listings}
+\usepackage{hyperref}
+\usepackage{cleveref}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{graphicx}
+\usepackage{xcolor}
+
+% ----- macros ----------------------------------------------------------------
+\newcommand{\toolname}{\textsc{Tortuga}\xspace}
+\newcommand{\atwol}{A\textsuperscript{2}L\xspace}
+\newcommand{\rqlabel}[1]{\textbf{RQ#1}}
+\newcommand{\hyplabel}[1]{\textbf{H#1}}
+\newcommand{\code}[1]{\texttt{\small #1}}
+
+% si-units configuration -- decimal separator: dot (English convention)
+\sisetup{detect-all, group-separator={\,}, output-decimal-marker={.}}
+
+% ----- metadata --------------------------------------------------------------
+\settopmatter{printacmref=false, printccs=false, printfolios=true}
+\setcopyright{none}
+\acmConference[ESEM~20XX]{ACM/IEEE Intl.\ Symposium on Empirical Software Engineering and Measurement}{20XX}{TBD}
+
+% ----- title -----------------------------------------------------------------
+\title{The Cost of Unlinkability:\\
+An Empirical Evaluation of \atwol Anonymous Atomic Swaps on Bitcoin Taproot}
+
+\author{Yan Fernandes}
+\affiliation{%
+  \institution{UCSal}
+  \city{Salvado}
+  \country{Brazil}
+}
+\email{yanferpi@proton.me}
+
+% ----- begin document --------------------------------------------------------
+\begin{document}
+
+\begin{abstract}
+	Submarine swaps used by production Bitcoin services (Boltz, Loop) rely on
+	Hash Time-Locked Contracts (HTLCs) whose preimage hash is identical on both
+	legs of a swap, allowing trivial linking of sender and receiver by any
+	observer. \emph{Anonymous Atomic Locks} (\atwol, Tairi et al., IEEE S\&P~2021)
+	remove this correlation by replacing the shared hash with Schnorr adaptor
+	signatures locked to randomizable Castagnos--Laguillaumie (CL) puzzles. While
+	the cryptographic security of \atwol is well established, the
+	\emph{engineering cost} of adopting it in production-grade Bitcoin software
+	remains unquantified. We present a controlled, cross-architecture experiment
+	comparing a Rust reference implementation of \atwol on Bitcoin Taproot
+	(\toolname) against an HTLC baseline. We measure end-to-end latency,
+	on-chain footprint, fees, and peak memory across $N=\num{30}$ runs per arm on
+	two heterogeneous machines (Apple~M4~Pro/ARM64 and AMD~EPYC-Genoa/x86\_64).
+		[Results placeholder: report effect sizes for H1--H4 with 95\,\% CIs.]
+	Our contribution is the first empirical characterisation of the
+	unlinkability--cost trade-off for \atwol on Bitcoin and a fully replicable
+	benchmarking harness for future privacy-preserving swap research.
+\end{abstract}
+
+\keywords{Empirical software engineering, atomic swaps, privacy, Bitcoin,
+	adaptor signatures, replication study}
+
+\maketitle
+
+% =============================================================================
+\section{Introduction}
+\label{sec:intro}
+
+Bitcoin submarine swaps---the operational backbone of off-chain liquidity
+services such as Boltz and Lightning Loop---use HTLCs in which the same
+SHA-256 preimage hash $H$ appears on both legs of the swap. Although each
+leg is a separate transaction, any observer can match the two by inspecting
+$H$, breaking unlinkability between payer and payee. The privacy of the user
+therefore depends entirely on the trustworthiness of the swap provider.
+
+The Anonymous Atomic Locks construction (\atwol) of \citet{tairi2021a2l}
+removes this trust assumption. \atwol replaces the shared hash with a pair
+of \emph{randomized adaptor signatures} bound to a CL-encrypted puzzle;
+each leg of the swap commits to a different adaptor point on-chain, so the
+two transactions are cryptographically unlinkable even by the provider.
+
+While \atwol's cryptographic guarantees have been proven, its
+\emph{engineering cost} in a production-grade Bitcoin setting (Taproot,
+BIP-340 Schnorr) has not been empirically characterised. Practitioners need
+quantitative answers to deploy this privacy improvement.
+
+\paragraph*{Research Questions.}
+\begin{itemize}
+	\item \rqlabel{1} What is the end-to-end latency overhead of \atwol
+	      compared to HTLC submarine swaps?
+	\item \rqlabel{2} What is the on-chain footprint difference (vbytes,
+	      fees in sat/vB) between \atwol and HTLC?
+	\item \rqlabel{3} What is the peak memory and per-phase computational
+	      overhead of \atwol relative to HTLC?
+\end{itemize}
+
+\paragraph*{Contributions.}
+(i)~\toolname, an open-source Rust implementation of \atwol on Bitcoin
+Taproot (5~crates, \num{82}~tests).
+(ii)~A pre-registered, controlled, cross-architecture experiment
+comparing \atwol against an HTLC baseline.
+(iii)~A fully replicable benchmarking harness (instrumented CSV emission,
+analysis pipeline, Dockerfile, frozen commit) archived on Zenodo.
+
+% =============================================================================
+\section{Background}
+\label{sec:background}
+
+\subsection{HTLC Submarine Swaps}
+A submarine swap exchanges off-chain liquidity (e.g., Lightning) for on-chain
+funds. Both legs are funded with the script\linebreak
+\code{IF <hash> EQUALVERIFY <pubA> CHECKSIG ELSE <timeout> CLTV DROP <pubB> CHECKSIG ENDIF}.
+The recipient learns the preimage $r$ where $\text{SHA256}(r) = H$ to claim
+funds; revealing $r$ unlocks the other leg. The shared $H$ makes the two
+transactions trivially linkable.
+
+\subsection{Adaptor Signatures and CL Puzzles}
+A Schnorr adaptor signature is a pre-signature $\tilde{\sigma}$ over an
+adaptor point $T = t \cdot G$; revealing the full signature $\sigma$
+discloses $t$. \atwol composes adaptor signatures with a Castagnos--Laguillaumie
+public-key encryption scheme whose ciphertexts form a \emph{randomizable
+	puzzle}: anyone with the puzzle and a fresh randomizer $\rho$ can produce a
+new puzzle $Z'$ for $t + \rho$ without knowledge of $t$. The unlinkability
+of \atwol follows from puzzle randomizability and Schnorr adaptor security
+\citep{tairi2021a2l, aumayr2021generalized}.
+
+% =============================================================================
+\section{Related Work}
+\label{sec:related}
+
+\paragraph*{Privacy-preserving payment hubs.} TumbleBit \citep{heilman2017tumblebit}
+introduced unlinkable hub payments on Bitcoin using RSA puzzles; \atwol
+\citep{tairi2021a2l} reduces the cryptographic and on-chain footprint and is
+the first construction compatible with Taproot key-path spends. BlindHub
+\citep{qin2023blindhub} extends \atwol with blind signatures.
+
+\paragraph*{Empirical evaluation of cryptographic protocols.}
+Performance studies of payment-channel protocols
+\citep{harris2020flare,roos2018settling} measure throughput and latency in
+simulated networks; we focus instead on \emph{per-swap} cost in a real
+Bitcoin regtest network with side-by-side baseline.
+
+\paragraph*{Experimental software engineering on cryptographic systems.}
+Replication studies remain rare in the cryptographic-systems space
+\citep{wohlin2014guidelines,carver2010replications}; our work follows the
+guidelines of \citet{wohlin2012experimentation} for design, randomisation,
+and threats-to-validity reporting.
+
+% =============================================================================
+\section{Methodology}
+\label{sec:method}
+
+We follow a single-factor, two-level, between-subjects controlled experiment.
+The protocol is pre-registered: \cref{tab:design} summarises the design and
+\cref{tab:vars} the operationalisation.
+
+\subsection{Object of Study}
+\toolname is a Rust workspace of five crates (\code{cl-crypto},
+\code{adaptor}, \code{protocol}, \code{bitcoin}, \code{cli}) totalling 82
+unit and integration tests. It exposes a \code{compare} subcommand that runs
+\atwol and HTLC swaps side-by-side against a Nigiri Bitcoin regtest node.
+
+\subsection{Independent Variable}
+\textsc{Protocol} $\in \{\atwol, \text{HTLC}\}$.
+
+\subsection{Dependent Variables}
+\Cref{tab:vars} lists the \num{12} dependent variables with units and source.
+
+\begin{table}[t]
+	\small
+	\caption{Operationalisation of dependent variables.}
+	\label{tab:vars}
+	\begin{tabular}{@{}lll@{}}
+		\toprule
+		Variable                 & Unit & Source                              \\
+		\midrule
+		\code{e2e\_latency\_ms}  & ms   & wall-clock init$\to$claim           \\
+		\code{pgen\_ms}          & ms   & \code{cl-crypto} (A$^2$L)           \\
+		\code{prand\_ms}         & ms   & \code{cl-crypto} (A$^2$L)           \\
+		\code{psolve\_ms}        & ms   & \code{cl-crypto} (A$^2$L)           \\
+		\code{cldl\_prove\_ms}   & ms   & ZK proof (A$^2$L)                   \\
+		\code{cldl\_verify\_ms}  & ms   & ZK proof (A$^2$L)                   \\
+		\code{adaptor\_*\_ms}    & ms   & \code{adaptor} sign/verify/complete \\
+		\code{htlc\_*\_ms}       & ms   & HTLC build/claim                    \\
+		\code{tx\_vbytes}        & vB   & \code{rust-bitcoin} \code{vsize()}  \\
+		\code{fee\_sats}         & sat  & vbytes $\times$ \SI{5}{sat/\vbyte}  \\
+		\code{peak\_rss\_kb}     & kB   & \code{getrusage} (normalised)       \\
+		\code{cpu\_user/sys\_ms} & ms   & \code{getrusage}                    \\
+		\bottomrule
+	\end{tabular}
+\end{table}
+
+\subsection{Hypotheses}
+\Cref{tab:hyps} states the four pre-registered hypotheses. We use a
+significance level $\alpha = 0.05$ with Bonferroni correction across the
+four families ($\alpha' \approx 0.0125$).
+
+\begin{table}[t]
+	\small
+	\caption{Pre-registered hypotheses. All tests are two-sided unless noted.}
+	\label{tab:hyps}
+	\begin{tabular}{@{}lp{0.78\columnwidth}@{}}
+		\toprule
+		ID           & Alternative hypothesis H$_1$                             \\
+		\midrule
+		\hyplabel{1} & median end-to-end latency of \atwol is greater than HTLC \\
+		\hyplabel{2} & median on-chain vbytes of \atwol is smaller than HTLC    \\
+		\hyplabel{3} & median fee in satoshis of \atwol is smaller than HTLC    \\
+		\hyplabel{4} & median peak RSS of \atwol is greater than HTLC           \\
+		\bottomrule
+	\end{tabular}
+\end{table}
+
+\subsection{Experimental Design}
+\begin{table}[t]
+	\small
+	\caption{Experimental design summary.}
+	\label{tab:design}
+	\begin{tabular}{@{}ll@{}}
+		\toprule
+		Element       & Choice                                             \\
+		\midrule
+		Design        & single-factor, between-subjects                    \\
+		Factor        & Protocol \{A$^2$L, HTLC\}                          \\
+		Sample size   & $N=30$ per arm (60 total) per machine              \\
+		Randomisation & run order randomised; container reset/run          \\
+		Warm-up       & 3 discarded runs per arm                           \\
+		Hardware (M1) & Apple M4 Pro, 24\,GB, macOS                        \\
+		Hardware (M2) & AMD EPYC-Genoa 8\,vCPU, 15\,GB, NixOS 24.11        \\
+		Toolchain     & rustc 1.82+ \code{--release}, LTO, \code{mimalloc} \\
+		Network       & Nigiri regtest, fresh container/run                \\
+		Swap amount   & \num{100000} sat                                   \\
+		Fee rate      & \SI{5}{sat/\vbyte}                                 \\
+		CL security   & \num{1827}-bit class-group discriminant            \\
+		\bottomrule
+	\end{tabular}
+\end{table}
+
+\subsection{Cross-Architecture Replication}
+We replicate the full design on two heterogeneous machines: M1 (Apple~M4~Pro,
+ARM64, macOS) and M2 (AMD~EPYC-Genoa, x86\_64, NixOS~24.11, kernel~6.6.94).
+This provides an external-validity probe against architecture-specific
+SIMD/aes-ni effects and OS-specific scheduler noise. \code{getrusage.ru\_maxrss}
+units differ between Linux (kB) and macOS (bytes); the harness normalises
+to kB before emission.
+
+\subsection{Statistical Analysis Plan}
+For each dependent variable: (i)~Shapiro--Wilk normality test;
+(ii)~Levene's test for variance equality; (iii)~if normal and equal variance,
+Welch's $t$-test, else Mann--Whitney $U$; (iv)~effect size as Cohen's $d$
+(parametric) or Cliff's $\delta$ (non-parametric) with 95\,\% bootstrap CI
+($\num{10000}$ resamples); (v)~Bonferroni correction across H1--H4.
+All analyses pre-registered in \code{analysis/run.py} (deliverable~\#4).
+
+% =============================================================================
+\section{Results}
+\label{sec:results}
+
+% --- placeholders auto-generated by analysis/run.py ---
+\paragraph*{[Placeholder]} Descriptive statistics (median, IQR, mean$\pm$SD)
+per arm per machine. See \code{tables/descriptives.tex}.
+
+\paragraph*{[Placeholder]} Hypothesis-test outcomes for H1--H4 with effect
+sizes and 95\,\% CIs. See \code{tables/hypotheses.tex}.
+
+\paragraph*{[Placeholder]} Boxplots of per-phase timings.
+See \code{figures/timings.pdf}.
+
+\paragraph*{[Placeholder]} Cross-architecture comparison (M1 vs M2).
+See \code{figures/cross\_arch.pdf}.
+
+% =============================================================================
+\section{Discussion}
+\label{sec:discussion}
+
+% --- to be drafted after results are in ---
+\paragraph*{[Placeholder]} Interpretation of effect sizes in operational
+terms (e.g., how many additional ms per swap; sat per swap saved by
+Taproot keypath spends).
+
+\paragraph*{[Placeholder]} Implications for production swap providers
+(Boltz/Loop): is the latency overhead amortisable across a payment hub?
+Is the on-chain saving enough to subsidise the CL cost?
+
+% =============================================================================
+\section{Threats to Validity}
+\label{sec:threats}
+
+We follow the taxonomy of \citet{wohlin2012experimentation}.
+
+\paragraph*{Construct.}
+Our metrics (latency, vbytes, fees, RSS) directly operationalise
+``engineering cost'', but developer-experience cost (LOC, complexity,
+on-call burden) is out of scope for this short paper.
+
+\paragraph*{Internal.}
+JIT/warm-cache effects mitigated by 3 warm-up runs per arm; background
+load mitigated by a \code{systemd-run} cgroup (M2) and exclusive use (M1);
+allocator pinned (\code{mimalloc}); run order randomised within blocks of 10.
+
+\paragraph*{External.}
+Generalisation to mainnet block latency is limited by regtest's artificial
+block intervals; we report \emph{protocol-internal} latency separately from
+on-chain confirmation latency. \toolname is the only \atwol implementation
+benchmarked; cross-architecture replication mitigates platform-specific
+generalisation concerns.
+
+\paragraph*{Conclusion.}
+$N=30$ per arm gives power $\geq 0.80$ for Cliff's $\delta \geq 0.33$
+(post-hoc verification). Bonferroni correction is conservative but
+appropriate. Replication package frozen at commit \code{<hash>} and
+published on Zenodo.
+
+% =============================================================================
+\section{Conclusion and Future Work}
+\label{sec:conclusion}
+
+We present the first empirical evaluation of \atwol on Bitcoin Taproot and
+quantify the unlinkability--cost trade-off relative to HTLC submarine swaps.
+	[Results placeholder: 1--2 sentence headline finding once data is in.]
+Future work includes (i)~developer-experience metrics on \toolname;
+(ii)~end-to-end measurements on mainnet/testnet with realistic block latency;
+(iii)~benchmarking alternative CL backends.
+
+% =============================================================================
+\paragraph*{Replication Package.}
+Source, raw CSVs, analysis scripts, and Dockerfile are available at
+\url{https://github.com/yan-pi/tortuga-swap} (tag \code{esem20XX-replication})
+and archived on Zenodo (DOI on submission).
+
+\bibliographystyle{ACM-Reference-Format}
+\bibliography{references}
+
+\end{document}

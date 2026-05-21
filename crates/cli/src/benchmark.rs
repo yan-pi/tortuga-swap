@@ -75,7 +75,22 @@ pub async fn run(cfg: Config) -> Result<()> {
         append_csv(&cfg.out, rec.rows()).context("append csv")?;
     }
 
+    // Run-metadata sidecar: the run-order seed and config are run-level, not
+    // per-row, so they sit beside the CSV rather than in every row (m12).
+    // The commit SHA and machine id are already stamped into every CSV row.
+    let meta = serde_json::json!({
+        "reps": cfg.reps,
+        "warmup": cfg.warmup,
+        "amount_sats": cfg.amount_sats,
+        "on_chain": cfg.on_chain,
+        "run_order_seed": cfg.seed,
+    });
+    let meta_path = cfg.out.with_extension("meta.json");
+    std::fs::write(&meta_path, serde_json::to_string_pretty(&meta)?)
+        .with_context(|| format!("write metadata {}", meta_path.display()))?;
+
     eprintln!("[benchmark] done. CSV: {}", cfg.out.display());
+    eprintln!("[benchmark] metadata: {}", meta_path.display());
     Ok(())
 }
 

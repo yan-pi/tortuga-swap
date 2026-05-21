@@ -11,5 +11,8 @@ Cargo.lock
 *.swp
 *.bak
 
+# direnv (nix devShell cache)
+.direnv/
+
 # Misc
 .DS_Store

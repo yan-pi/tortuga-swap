@@ -13,6 +13,19 @@
 //! run_id,arm,machine,commit,timestamp_unix_ms,phase,metric,value,unit
 //! ```
 //!
+//! # Phases
+//!
+//! `phase` is a free-form label chosen by the caller. The swap code emits:
+//!
+//! - **A2L**: `setup_cl`, `pgen`, `puzzle_promise`, `puzzle_solver`,
+//!   `psolve_complete_tx1`, `extract_secret`, `complete_tx2`.
+//! - **HTLC**: `preimage_hash`, `htlc_script_tx1`, `htlc_script_tx2`,
+//!   `claim_witness` (in-memory); `build_htlc_output_tx1`, `sign_tx1`,
+//!   `build_htlc_output_tx2`, `sign_tx2` (on-chain).
+//! - On-chain runs of both arms also emit a `tx1` and a `tx2` `vbytes` row.
+//! - `total`: the benchmark driver's per-run summary -- wall-clock
+//!   `duration`, absolute `peak_rss`, and `cpu_user` / `cpu_sys`.
+//!
 //! See `crates/cli/src/benchmark.rs` for the driver loop.
 
 use std::sync::{Arc, Mutex};

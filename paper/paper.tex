@@ -198,7 +198,7 @@ paper.
 		\code{e2e\_latency\_ms} & ms   & wall-clock init$\to$claim            \\
 		\code{tx\_vbytes}       & vB   & \code{rust-bitcoin} \code{vsize()}   \\
 		\code{fee\_sats}        & sat  & \code{tx\_vbytes} $\times$ 5\,sat/vB \\
-		\code{peak\_rss\_kb}    & kB   & \code{getrusage} (normalised)        \\
+		\code{peak\_rss\_kib}   & kiB  & \code{getrusage} (normalised)        \\
 		\bottomrule
 	\end{tabular}
 \end{table}
@@ -258,8 +258,8 @@ We replicate the full design on two heterogeneous machines: M1 (Apple~M4~Pro,
 ARM64, macOS) and M2 (AMD~EPYC-Genoa, x86\_64, NixOS~24.11, kernel~6.6.94).
 This provides an external-validity probe against architecture-specific
 SIMD/aes-ni effects and OS-specific scheduler noise. \code{getrusage.ru\_maxrss}
-units differ between Linux (kB) and macOS (bytes); the harness normalises
-to kB before emission.
+units differ between Linux (kibibytes) and macOS (bytes); the harness
+normalises to kiB before emission.
 
 \subsection{Statistical Analysis Plan}
 Each hypothesis is evaluated with the Mann--Whitney $U$ test, using the

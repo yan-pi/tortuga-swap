@@ -54,7 +54,7 @@ HTLC_PHASES = {
 OVERLAP = {
     "e2e_us": (60_000.0, 300_000.0),
     "vbytes": (122.0, 168.0),
-    "peak_rss_kb": (24_000.0, 72_000.0),
+    "peak_rss_kib": (24_000.0, 72_000.0),
 }
 
 
@@ -67,7 +67,7 @@ class Cell:
     phases: dict
     e2e_us: float
     vbytes: float
-    peak_rss_kb: float
+    peak_rss_kib: float
     cpu_user_us: float
     cpu_sys_us: float
 
@@ -101,7 +101,7 @@ def cell_rows(rng, cell, n):
     """Yield every CSV row for one (machine, arm) cell."""
     e2e = draw(rng, cell.e2e_us, 0.07, n, OVERLAP["e2e_us"], CONTAM_K)
     vbytes = draw(rng, cell.vbytes, 0.03, n, OVERLAP["vbytes"], CONTAM_K)
-    rss = draw(rng, cell.peak_rss_kb, 0.05, n, OVERLAP["peak_rss_kb"], CONTAM_K)
+    rss = draw(rng, cell.peak_rss_kib, 0.05, n, OVERLAP["peak_rss_kib"], CONTAM_K)
     cpu_user = draw(rng, cell.cpu_user_us, 0.08, n)
     cpu_sys = draw(rng, cell.cpu_sys_us, 0.10, n)
     phases = {p: draw(rng, m, 0.10, n) for p, m in cell.phases.items()}
@@ -114,7 +114,7 @@ def cell_rows(rng, cell, n):
             yield (*common, phase, "duration", round(float(series[i]), 1), "us")
 
         yield (*common, "total", "duration", round(float(e2e[i]), 1), "us")
-        yield (*common, "total", "peak_rss", round(float(rss[i]), 1), "kB")
+        yield (*common, "total", "peak_rss", round(float(rss[i]), 1), "kiB")
         yield (*common, "total", "cpu_user", round(float(cpu_user[i]), 1), "us")
         yield (*common, "total", "cpu_sys", round(float(cpu_sys[i]), 1), "us")
 

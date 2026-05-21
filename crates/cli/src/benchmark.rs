@@ -112,7 +112,7 @@ async fn run_one(run_id: &str, arm: Arm, amount: u64, on_chain: bool) -> Result<
     rec.record_us("total", elapsed_us);
     // peak_rss is a high-water mark: emit the absolute value, not a delta.
     // (M2 -- a delta of high-water marks collapses to ~0 once the mark is hit.)
-    rec.record("total", "peak_rss", after.peak_rss_kb as f64, "kB");
+    rec.record("total", "peak_rss", after.peak_rss_kib as f64, "kiB");
     rec.record("total", "cpu_user", cpu.user_us as f64, "us");
     rec.record("total", "cpu_sys", cpu.sys_us as f64, "us");
 

@@ -155,11 +155,11 @@ impl Drop for Timer {
 
 // ----- rusage snapshot --------------------------------------------------------
 
-/// Snapshot of `getrusage(RUSAGE_SELF)`. Linux reports `ru_maxrss` in kB,
-/// macOS in bytes; this struct normalises both to **kB**.
+/// Snapshot of `getrusage(RUSAGE_SELF)`. Linux reports `ru_maxrss` in
+/// kibibytes, macOS in bytes; this struct normalises both to **kiB**.
 #[derive(Debug, Clone, Copy)]
 pub struct Rusage {
-    pub peak_rss_kb: u64,
+    pub peak_rss_kib: u64,
     pub user_us: u64,
     pub sys_us: u64,
 }
@@ -172,14 +172,14 @@ impl Rusage {
             libc::getrusage(libc::RUSAGE_SELF, &mut u);
         }
         let peak_rss_raw = u.ru_maxrss as u64;
-        // macOS: bytes, Linux: kB. Normalise to kB.
-        let peak_rss_kb = if cfg!(target_os = "macos") {
+        // macOS: bytes, Linux: kibibytes. Normalise to kiB.
+        let peak_rss_kib = if cfg!(target_os = "macos") {
             peak_rss_raw / 1024
         } else {
             peak_rss_raw
         };
         Self {
-            peak_rss_kb,
+            peak_rss_kib,
             user_us: timeval_us(u.ru_utime),
             sys_us: timeval_us(u.ru_stime),
         }
@@ -188,12 +188,12 @@ impl Rusage {
     /// Per-counter difference (`self - other`), saturating at zero.
     ///
     /// Valid only for the **cumulative** counters (`user_us`, `sys_us`).
-    /// `peak_rss_kb` is a high-water mark, not a counter: its delta is
+    /// `peak_rss_kib` is a high-water mark, not a counter: its delta is
     /// meaningless (it collapses to ~0 once the mark has been reached). For
-    /// peak RSS, read the **absolute** `peak_rss_kb` of a single `snapshot()`.
+    /// peak RSS, read the **absolute** `peak_rss_kib` of a single `snapshot()`.
     pub fn delta(self, other: Self) -> Self {
         Self {
-            peak_rss_kb: self.peak_rss_kb.saturating_sub(other.peak_rss_kb),
+            peak_rss_kib: self.peak_rss_kib.saturating_sub(other.peak_rss_kib),
             user_us: self.user_us.saturating_sub(other.user_us),
             sys_us: self.sys_us.saturating_sub(other.sys_us),
         }
@@ -285,7 +285,7 @@ mod tests {
     #[test]
     fn rusage_snapshot_runs() {
         let r = Rusage::snapshot();
-        assert!(r.peak_rss_kb > 0, "peak_rss_kb should be positive");
+        assert!(r.peak_rss_kib > 0, "peak_rss_kib should be positive");
     }
 
     #[test]

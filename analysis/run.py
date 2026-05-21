@@ -39,13 +39,13 @@ N_RESAMPLES = 10_000
 HYPOTHESES = (
     ("H1", "e2e_latency_ms", "greater"),  # A2L latency  > HTLC
     ("H2", "tx_vbytes", "less"),          # A2L vbytes   < HTLC
-    ("H4", "peak_rss_kb", "greater"),     # A2L peak RSS > HTLC
+    ("H4", "peak_rss_kib", "greater"),     # A2L peak RSS > HTLC
 )
 
 DV_LABEL = {
     "e2e_latency_ms": "e2e latency (ms)",
     "tx_vbytes": "tx size (vB)",
-    "peak_rss_kb": "peak RSS (kB)",
+    "peak_rss_kib": "peak RSS (kiB)",
 }
 
 
@@ -85,7 +85,7 @@ def derive_per_run(df: pd.DataFrame) -> pd.DataFrame:
     )
     out = meta.copy()
     out["e2e_latency_ms"] = one_per_run("duration", "us") / 1000.0
-    out["peak_rss_kb"] = one_per_run("peak_rss")
+    out["peak_rss_kib"] = one_per_run("peak_rss")
     # tx_vbytes = vsize(tx1) + vsize(tx2); NaN for runs that emit no vbytes
     # rows (in-memory runs), which the caller then drops from H2.
     out["tx_vbytes"] = (
@@ -243,7 +243,7 @@ def emit_descriptives_table(per_run: pd.DataFrame, machines, path: Path) -> None
                 f"& ${sub['e2e_latency_ms'].median():.1f}$ "
                 f"& ${sub['tx_vbytes'].median():.1f}$ "
                 f"& ${sub['fee_sats'].median():.0f}$ "
-                f"& ${sub['peak_rss_kb'].median():.0f}$ \\\\"
+                f"& ${sub['peak_rss_kib'].median():.0f}$ \\\\"
             )
     body = "\n".join(rows)
     path.write_text(
@@ -255,7 +255,7 @@ def emit_descriptives_table(per_run: pd.DataFrame, machines, path: Path) -> None
         "  \\label{tab:descriptives}\n"
         "  \\begin{tabular}{@{}llrrrr@{}}\n"
         "    \\toprule\n"
-        "    Machine & Arm & e2e (ms) & tx (vB) & fee (sat) & peak RSS (kB)"
+        "    Machine & Arm & e2e (ms) & tx (vB) & fee (sat) & peak RSS (kiB)"
         " \\\\\n"
         "    \\midrule\n"
         f"{body}\n"

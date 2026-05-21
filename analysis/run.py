@@ -57,6 +57,11 @@ def derive_per_run(df: pd.DataFrame) -> pd.DataFrame:
     e2e_latency_ms is taken ONLY from the single ``total/duration`` row per run
     (B1). Summing the per-phase rows -- or adding them to ``total`` -- would
     double-count, roughly doubling the latency estimate.
+
+    tx_vbytes is the sum of the per-transaction ``vbytes`` rows of a run
+    (``vsize(tx1) + vsize(tx2)``). Those rows are emitted only by on-chain
+    runs -- in-memory runs use stub transactions and emit none -- so in-memory
+    runs get ``NaN`` here and are dropped from H2 by the caller (M3).
     """
     totals = df[df["phase"] == "total"]
 
@@ -80,8 +85,12 @@ def derive_per_run(df: pd.DataFrame) -> pd.DataFrame:
     )
     out = meta.copy()
     out["e2e_latency_ms"] = one_per_run("duration", "us") / 1000.0
-    out["tx_vbytes"] = one_per_run("vbytes")
     out["peak_rss_kb"] = one_per_run("peak_rss")
+    # tx_vbytes = vsize(tx1) + vsize(tx2); NaN for runs that emit no vbytes
+    # rows (in-memory runs), which the caller then drops from H2.
+    out["tx_vbytes"] = (
+        df[df["metric"] == "vbytes"].groupby("run_id")["value"].sum(min_count=1)
+    )
     out["fee_sats"] = out["tx_vbytes"] * FEE_RATE_SAT_PER_VB
     return out.reset_index()
 
@@ -284,8 +293,12 @@ def main():
         sub = per_run[per_run["machine"] == machine]
         machine_results = []
         for hyp, variable, alt in HYPOTHESES:
-            a2l = sub[sub["arm"] == "a2l"][variable].to_numpy()
-            htlc = sub[sub["arm"] == "htlc"][variable].to_numpy()
+            a2l = sub[sub["arm"] == "a2l"][variable].dropna().to_numpy()
+            htlc = sub[sub["arm"] == "htlc"][variable].dropna().to_numpy()
+            if a2l.size == 0 or htlc.size == 0:
+                # e.g. H2 on a machine with no on-chain runs (no vbytes rows).
+                print(f"[run] {machine} {hyp} {variable}: no data -- skipped")
+                continue
             machine_results.append(
                 run_test(machine, hyp, variable, alt, a2l, htlc, rng)
             )

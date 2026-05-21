@@ -114,10 +114,16 @@ def cell_rows(rng, cell, n):
             yield (*common, phase, "duration", round(float(series[i]), 1), "us")
 
         yield (*common, "total", "duration", round(float(e2e[i]), 1), "us")
-        yield (*common, "total", "vbytes", round(float(vbytes[i]), 1), "vB")
         yield (*common, "total", "peak_rss", round(float(rss[i]), 1), "kB")
         yield (*common, "total", "cpu_user", round(float(cpu_user[i]), 1), "us")
         yield (*common, "total", "cpu_sys", round(float(cpu_sys[i]), 1), "us")
+
+        # vbytes is recorded per transaction (tx1 + tx2), matching the real
+        # benchmark schema; run.py sums the two into tx_vbytes.
+        v_total = float(vbytes[i])
+        v_tx1 = round(v_total * 0.5, 1)
+        yield (*common, "tx1", "vbytes", v_tx1, "vB")
+        yield (*common, "tx2", "vbytes", round(v_total - v_tx1, 1), "vB")
 
 
 def main():

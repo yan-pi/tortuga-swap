@@ -69,7 +69,8 @@ impl Recorder {
             run_id: run_id.into(),
             arm: arm.into(),
             machine: machine_id(),
-            commit: env!("CARGO_PKG_VERSION").to_string(),
+            // Set by build.rs; "unknown" when built outside a git checkout.
+            commit: option_env!("TORTUGA_GIT_SHA").unwrap_or("unknown").to_string(),
             timestamp_unix_ms: now_unix_ms(),
             rows: Vec::with_capacity(64),
         }

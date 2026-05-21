@@ -30,6 +30,14 @@
             # bison: class_group's vendored PARI/GP needs bison 3.x to
             # process parse.y. macOS only ships bison 2.3.
             pkgs.bison
+
+            # python + scientific stack for the statistical pipeline in
+            # analysis/ (generate_synthetic.py, run.py).
+            (pkgs.python3.withPackages (ps: with ps; [
+              numpy
+              pandas
+              scipy
+            ]))
           ];
 
           # With no cc-wrapper, point the system compiler/linker at gmp.

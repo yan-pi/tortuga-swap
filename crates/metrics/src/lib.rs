@@ -1,7 +1,10 @@
 //! Phase-timing and resource-usage instrumentation for tortuga-swap.
 //!
-//! The recorder is held in a `tokio::task_local` cell so that phases inside
-//! async swap code can register timings without changing function signatures.
+//! The recorder is held in a `tokio::task_local` `Arc<Mutex<_>>` so that phases
+//! inside async swap code can register timings without changing function
+//! signatures. The `Arc<Mutex<_>>` (rather than `Rc<RefCell<_>>`) keeps the
+//! task-local value `Send`, so records survive `.await` points that migrate the
+//! task across worker threads on Tokio's multi-thread runtime.
 //! Outside of a recorder scope, all calls are no-ops (zero overhead).
 //!
 //! Long-format CSV schema:
@@ -12,8 +15,7 @@
 //!
 //! See `crates/cli/src/benchmark.rs` for the driver loop.
 
-use std::cell::RefCell;
-use std::rc::Rc;
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use serde::Serialize;
@@ -94,7 +96,7 @@ impl Recorder {
 // ----- task-local recorder cell ----------------------------------------------
 
 tokio::task_local! {
-    static RECORDER: Rc<RefCell<Recorder>>;
+    static RECORDER: Arc<Mutex<Recorder>>;
 }
 
 /// Run `f` inside a fresh recorder scope. Returns the populated recorder
@@ -103,26 +105,30 @@ pub async fn scope<F, R>(mut rec: Recorder, f: F) -> (Recorder, R)
 where
     F: std::future::Future<Output = R>,
 {
-    let cell = Rc::new(RefCell::new(std::mem::take(&mut rec)));
-    let cell_clone = cell.clone();
-    let result = RECORDER.scope(cell_clone, f).await;
-    let final_rec = Rc::try_unwrap(cell)
-        .map(|c| c.into_inner())
-        .unwrap_or_else(|rc| rc.borrow().clone());
+    let cell = Arc::new(Mutex::new(std::mem::take(&mut rec)));
+    let result = RECORDER.scope(Arc::clone(&cell), f).await;
+    let final_rec = match Arc::try_unwrap(cell) {
+        Ok(mutex) => mutex.into_inner().unwrap_or_else(|e| e.into_inner()),
+        Err(shared) => shared.lock().unwrap_or_else(|e| e.into_inner()).clone(),
+    };
     (final_rec, result)
 }
 
 /// Push a duration into the active recorder (no-op outside scope).
 pub fn record_us(phase: &str, micros: u64) {
     let _ = RECORDER.try_with(|cell| {
-        cell.borrow_mut().record_us(phase, micros);
+        if let Ok(mut rec) = cell.lock() {
+            rec.record_us(phase, micros);
+        }
     });
 }
 
 /// Push a generic metric into the active recorder (no-op outside scope).
 pub fn record(phase: &str, metric: &str, value: f64, unit: &str) {
     let _ = RECORDER.try_with(|cell| {
-        cell.borrow_mut().record(phase, metric, value, unit);
+        if let Ok(mut rec) = cell.lock() {
+            rec.record(phase, metric, value, unit);
+        }
     });
 }
 
@@ -179,7 +185,12 @@ impl Rusage {
         }
     }
 
-    /// Difference (`self - other`) saturating at zero for monotonicity.
+    /// Per-counter difference (`self - other`), saturating at zero.
+    ///
+    /// Valid only for the **cumulative** counters (`user_us`, `sys_us`).
+    /// `peak_rss_kb` is a high-water mark, not a counter: its delta is
+    /// meaningless (it collapses to ~0 once the mark has been reached). For
+    /// peak RSS, read the **absolute** `peak_rss_kb` of a single `snapshot()`.
     pub fn delta(self, other: Self) -> Self {
         Self {
             peak_rss_kb: self.peak_rss_kb.saturating_sub(other.peak_rss_kb),
@@ -247,6 +258,28 @@ mod tests {
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].phase, "dummy");
         assert!(rows[0].value >= 5_000.0, "expected >=5ms in us, got {}", rows[0].value);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn recorder_scope_is_send_across_worker_threads() {
+        // B2 regression guard. `tokio::spawn` requires `Send + 'static`, so
+        // this only compiles if the task-local recorder is `Send` -- which
+        // `Arc<Mutex<Recorder>>` is and `Rc<RefCell<Recorder>>` is not.
+        // The `yield_now` gives the scheduler a chance to migrate the task.
+        let handle = tokio::spawn(async {
+            let rec = Recorder::new("mt-1", "a2l");
+            let (rec, ()) = scope(rec, async {
+                record_us("phase_a", 100);
+                tokio::task::yield_now().await;
+                record_us("phase_b", 200);
+            })
+            .await;
+            rec.into_rows()
+        });
+        let rows = handle.await.expect("spawned task panicked");
+        assert_eq!(rows.len(), 2, "both phases recorded across the await point");
+        assert_eq!(rows[0].phase, "phase_a");
+        assert_eq!(rows[1].phase, "phase_b");
     }
 
     #[test]

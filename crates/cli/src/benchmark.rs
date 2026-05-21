@@ -106,12 +106,15 @@ async fn run_one(run_id: &str, arm: Arm, amount: u64, on_chain: bool) -> Result<
     result.context("swap run failed")?;
 
     let elapsed_us = start.elapsed().as_micros() as u64;
-    let delta = Rusage::snapshot().delta(before);
+    let after = Rusage::snapshot();
+    let cpu = after.delta(before);
 
     rec.record_us("total", elapsed_us);
-    rec.record("total", "peak_rss", delta.peak_rss_kb as f64, "kB");
-    rec.record("total", "cpu_user", delta.user_us as f64, "us");
-    rec.record("total", "cpu_sys", delta.sys_us as f64, "us");
+    // peak_rss is a high-water mark: emit the absolute value, not a delta.
+    // (M2 -- a delta of high-water marks collapses to ~0 once the mark is hit.)
+    rec.record("total", "peak_rss", after.peak_rss_kb as f64, "kB");
+    rec.record("total", "cpu_user", cpu.user_us as f64, "us");
+    rec.record("total", "cpu_sys", cpu.sys_us as f64, "us");
 
     Ok(rec)
 }

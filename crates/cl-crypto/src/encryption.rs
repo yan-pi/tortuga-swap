@@ -48,6 +48,7 @@ mod tests {
 
     #[test]
     fn encrypt_decrypt_roundtrip() {
+        let _guard = crate::class_group_guard();
         let setup = ClSetup::new();
         let keypair = TumblerKeyPair::generate(&setup);
 
@@ -63,6 +64,7 @@ mod tests {
 
     #[test]
     fn homomorphic_addition() {
+        let _guard = crate::class_group_guard();
         let setup = ClSetup::new();
         let keypair = TumblerKeyPair::generate(&setup);
 
@@ -85,6 +87,7 @@ mod tests {
 
     #[test]
     fn encrypt_deterministic_with_same_randomness() {
+        let _guard = crate::class_group_guard();
         let setup = ClSetup::new();
         let keypair = TumblerKeyPair::generate(&setup);
 
@@ -110,6 +113,7 @@ mod tests {
 
     #[test]
     fn homomorphic_addition_multiple() {
+        let _guard = crate::class_group_guard();
         let setup = ClSetup::new();
         let keypair = TumblerKeyPair::generate(&setup);
 

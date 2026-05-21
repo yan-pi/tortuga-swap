@@ -44,6 +44,25 @@ pub enum ClError {
 /// Result type alias for CL operations.
 pub type Result<T> = std::result::Result<T, ClError>;
 
+// ----- class-group backend serialisation -------------------------------------
+
+/// Serialises access to the class-group backend.
+///
+/// `class_group` builds on PARI/GP, which keeps a single non-reentrant global
+/// stack: two threads inside PARI at once corrupt that stack and crash the
+/// process with `SIGSEGV`. The `tortuga` swaps run sequentially, so production
+/// never contends this lock -- it exists chiefly because `cargo test` runs
+/// tests multi-threaded. Hold the returned guard around any class-group
+/// operation that could run concurrently with another.
+///
+/// The guard is **not** reentrant; never acquire it twice on one thread.
+pub fn class_group_guard() -> std::sync::MutexGuard<'static, ()> {
+    static CLASS_GROUP_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    CLASS_GROUP_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

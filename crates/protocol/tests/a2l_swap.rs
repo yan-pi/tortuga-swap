@@ -21,6 +21,7 @@ use curv::elliptic::curves::{Scalar, Secp256k1};
 /// 7. Verify unlinkability: adaptor points on tx1 != tx2
 #[test]
 fn full_a2l_swap() {
+    let _guard = cl_crypto::class_group_guard();
     let setup = ClSetup::new();
     let tumbler_kp = TumblerKeyPair::generate(&setup);
     let secp = secp256k1::Secp256k1::new();
@@ -157,6 +158,7 @@ fn full_a2l_swap() {
 /// Verify that the protocol API functions work end-to-end.
 #[test]
 fn full_a2l_swap_via_protocol_api() {
+    let _guard = cl_crypto::class_group_guard();
     let setup = ClSetup::new();
     let tumbler_kp = TumblerKeyPair::generate(&setup);
     let secp = secp256k1::Secp256k1::new();

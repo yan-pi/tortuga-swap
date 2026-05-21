@@ -44,15 +44,6 @@ The 13 minors referenced by the brief are documented only in the missing
 
 ## Found during acceptance testing
 
-- [ ] `cl-crypto` tests SIGSEGV under parallel execution. The vendored
-      PARI/GP in `class_group` uses a non-reentrant global stack and is
-      not thread-safe, so `cargo test -p cl-crypto` (and therefore
-      `cargo test --workspace`) crash with SIGSEGV when the test harness
-      runs tests on multiple threads in one process. All tests pass with
-      `--test-threads=1` (86/86 workspace tests, 1 ignored regtest demo).
-      Fix: serialise class-group calls behind a global lock, or mark the
-      cl-crypto tests `#[serial]`. Pre-existing; in code untouched by the
-      B1–B5 / M1 / M2 / M8 fixes.
 - [ ] `cargo clippy --workspace --all-targets -- -D warnings` flags
       `clippy::cloned_ref_to_slice_refs` twice in `tortuga-bitcoin` test
       code. The plain `cargo clippy --workspace -- -D warnings` is clean.

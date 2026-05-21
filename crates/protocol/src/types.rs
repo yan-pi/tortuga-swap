@@ -58,6 +58,7 @@ mod tests {
 
     #[test]
     fn promise_output_is_constructible() {
+        let _guard = cl_crypto::class_group_guard();
         let setup = ClSetup::new();
         let kp = TumblerKeyPair::generate(&setup);
         let alpha = Scalar::<Secp256k1>::random();
@@ -79,6 +80,7 @@ mod tests {
 
     #[test]
     fn solver_output_is_constructible() {
+        let _guard = cl_crypto::class_group_guard();
         let setup = ClSetup::new();
         let kp = TumblerKeyPair::generate(&setup);
         let alpha = Scalar::<Secp256k1>::random();

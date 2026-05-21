@@ -57,6 +57,7 @@ mod tests {
 
     #[test]
     fn valid_proof_verifies() {
+        let _guard = crate::class_group_guard();
         let setup = ClSetup::new();
         let keypair = TumblerKeyPair::generate(&setup);
 
@@ -72,6 +73,7 @@ mod tests {
 
     #[test]
     fn invalid_point_rejects() {
+        let _guard = crate::class_group_guard();
         let setup = ClSetup::new();
         let keypair = TumblerKeyPair::generate(&setup);
 
@@ -95,6 +97,7 @@ mod tests {
 
     #[test]
     fn proof_decrypts_to_correct_value() {
+        let _guard = crate::class_group_guard();
         let setup = ClSetup::new();
         let keypair = TumblerKeyPair::generate(&setup);
 
@@ -111,6 +114,7 @@ mod tests {
 
     #[test]
     fn different_alpha_produces_different_proof() {
+        let _guard = crate::class_group_guard();
         let setup = ClSetup::new();
         let keypair = TumblerKeyPair::generate(&setup);
 
@@ -126,6 +130,7 @@ mod tests {
 
     #[test]
     fn wrong_ciphertext_rejects() {
+        let _guard = crate::class_group_guard();
         let setup = ClSetup::new();
         let keypair = TumblerKeyPair::generate(&setup);
 

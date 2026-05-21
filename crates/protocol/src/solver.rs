@@ -87,6 +87,7 @@ mod tests {
 
     #[test]
     fn sender_process_produces_verifiable_pre_sig() {
+        let _guard = cl_crypto::class_group_guard();
         let setup = ClSetup::new();
         let kp = TumblerKeyPair::generate(&setup);
         let secp = secp256k1::Secp256k1::new();
@@ -124,6 +125,7 @@ mod tests {
 
     #[test]
     fn sender_extract_recovers_secret() {
+        let _guard = cl_crypto::class_group_guard();
         let setup = ClSetup::new();
         let kp = TumblerKeyPair::generate(&setup);
         let secp = secp256k1::Secp256k1::new();

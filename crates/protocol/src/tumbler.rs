@@ -79,6 +79,7 @@ mod tests {
 
     #[test]
     fn create_puzzle_returns_valid_puzzle() {
+        let _guard = cl_crypto::class_group_guard();
         let setup = ClSetup::new();
         let kp = TumblerKeyPair::generate(&setup);
 
@@ -91,6 +92,7 @@ mod tests {
 
     #[test]
     fn solve_and_complete_produces_valid_signature() {
+        let _guard = cl_crypto::class_group_guard();
         let setup = ClSetup::new();
         let kp = TumblerKeyPair::generate(&setup);
         let secp = secp256k1::Secp256k1::new();
@@ -129,6 +131,7 @@ mod tests {
 
     #[test]
     fn complete_tx2_produces_valid_signature() {
+        let _guard = cl_crypto::class_group_guard();
         let setup = ClSetup::new();
         let kp = TumblerKeyPair::generate(&setup);
         let secp = secp256k1::Secp256k1::new();

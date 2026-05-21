@@ -101,6 +101,7 @@ mod tests {
 
     #[test]
     fn puzzle_gen_solve_roundtrip() {
+        let _guard = crate::class_group_guard();
         let setup = ClSetup::new();
         let keypair = TumblerKeyPair::generate(&setup);
 
@@ -114,6 +115,7 @@ mod tests {
 
     #[test]
     fn puzzle_rand_preserves_solvability() {
+        let _guard = crate::class_group_guard();
         let setup = ClSetup::new();
         let keypair = TumblerKeyPair::generate(&setup);
 
@@ -134,6 +136,7 @@ mod tests {
 
     #[test]
     fn double_randomization_accumulates() {
+        let _guard = crate::class_group_guard();
         let setup = ClSetup::new();
         let keypair = TumblerKeyPair::generate(&setup);
 
@@ -156,6 +159,7 @@ mod tests {
 
     #[test]
     fn randomized_puzzles_have_different_points() {
+        let _guard = crate::class_group_guard();
         let setup = ClSetup::new();
         let keypair = TumblerKeyPair::generate(&setup);
 
@@ -179,6 +183,7 @@ mod tests {
 
     #[test]
     fn puzzle_point_matches_alpha() {
+        let _guard = crate::class_group_guard();
         let setup = ClSetup::new();
         let keypair = TumblerKeyPair::generate(&setup);
 
@@ -196,6 +201,7 @@ mod tests {
 
     #[test]
     fn puzzle_verify_succeeds_for_valid_puzzle() {
+        let _guard = crate::class_group_guard();
         let setup = ClSetup::new();
         let keypair = TumblerKeyPair::generate(&setup);
 
@@ -209,6 +215,7 @@ mod tests {
 
     #[test]
     fn puzzle_verify_fails_for_tampered_point() {
+        let _guard = crate::class_group_guard();
         let setup = ClSetup::new();
         let keypair = TumblerKeyPair::generate(&setup);
 
@@ -233,6 +240,7 @@ mod tests {
 
     #[test]
     fn randomized_puzzle_point_matches_expected() {
+        let _guard = crate::class_group_guard();
         let setup = ClSetup::new();
         let keypair = TumblerKeyPair::generate(&setup);
 

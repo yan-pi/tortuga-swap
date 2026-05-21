@@ -75,6 +75,7 @@ mod tests {
 
     #[test]
     fn receiver_process_produces_verifiable_pre_sig() {
+        let _guard = cl_crypto::class_group_guard();
         let setup = ClSetup::new();
         let kp = TumblerKeyPair::generate(&setup);
         let secp = secp256k1::Secp256k1::new();
@@ -109,6 +110,7 @@ mod tests {
 
     #[test]
     fn receiver_process_randomizes_puzzle() {
+        let _guard = cl_crypto::class_group_guard();
         let setup = ClSetup::new();
         let kp = TumblerKeyPair::generate(&setup);
         let secp = secp256k1::Secp256k1::new();
@@ -133,6 +135,7 @@ mod tests {
 
     #[test]
     fn receiver_process_fails_for_tampered_puzzle() {
+        let _guard = cl_crypto::class_group_guard();
         let setup = ClSetup::new();
         let kp = TumblerKeyPair::generate(&setup);
         let secp = secp256k1::Secp256k1::new();

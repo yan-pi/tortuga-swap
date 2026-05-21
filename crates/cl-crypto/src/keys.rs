@@ -97,6 +97,7 @@ mod tests {
 
     #[test]
     fn setup_creates_valid_group() {
+        let _guard = crate::class_group_guard();
         let setup = ClSetup::new();
 
         // Verification should succeed for a correctly generated group
@@ -108,6 +109,7 @@ mod tests {
 
     #[test]
     fn keygen_produces_distinct_keypairs() {
+        let _guard = crate::class_group_guard();
         let setup = ClSetup::new();
 
         let keypair1 = TumblerKeyPair::generate(&setup);
@@ -125,6 +127,7 @@ mod tests {
 
     #[test]
     fn setup_default_equals_new() {
+        let _guard = crate::class_group_guard();
         let setup1 = ClSetup::new();
         let setup2 = ClSetup::default();
 
@@ -137,6 +140,7 @@ mod tests {
 
     #[test]
     fn setup_group_accessor() {
+        let _guard = crate::class_group_guard();
         let setup = ClSetup::new();
         let group = setup.group();
 

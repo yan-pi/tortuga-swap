@@ -196,7 +196,7 @@ def _fmt_p(p: float) -> str:
     return "$<0.001$" if p < 0.001 else f"${p:.3f}$"
 
 
-def emit_hypothesis_table(machine, results, path: Path) -> None:
+def emit_hypothesis_table(machine, results, path: Path, seed: int) -> None:
     """Write the per-machine hypothesis-test table (full-width float)."""
     rows = []
     for r in results:
@@ -217,7 +217,7 @@ def emit_hypothesis_table(machine, results, path: Path) -> None:
         " $U$ with one-sided alternatives;\n"
         f"    Bonferroni $\\alpha' = 0.05/3 \\approx {ALPHA_PRIME:.4f}$;"
         " effect size Cliff's $\\delta$ with a\n"
-        "    10\\,000-resample BCa 95\\% CI.}\n"
+        f"    {N_RESAMPLES:,}-resample BCa 95\\% CI (RNG seed {seed}).}}\n"
         f"  \\label{{tab:hyp-{machine.lower()}}}\n"
         "  \\begin{tabular}{@{}llrrrrll@{}}\n"
         "    \\toprule\n"
@@ -314,6 +314,7 @@ def main():
         emit_hypothesis_table(
             machine, machine_results,
             args.tables_dir / f"hypotheses_{machine.lower()}.tex",
+            args.seed,
         )
         fee_notes.append(fee_corollary(per_run, machine))
 
@@ -324,6 +325,7 @@ def main():
         "n_families": N_FAMILIES,
         "alpha_prime": ALPHA_PRIME,
         "n_resamples": N_RESAMPLES,
+        "seed": args.seed,
         "machines": list(machines),
         "hypotheses": [asdict(r) for r in all_results],
         "fee_corollary": fee_notes,

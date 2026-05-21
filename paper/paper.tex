@@ -374,7 +374,9 @@ Future work includes (i)~developer-experience metrics on \toolname;
 \paragraph*{Replication Package.}
 Source, raw CSVs, analysis scripts, and Dockerfile are available at
 \url{https://github.com/yan-pi/tortuga-swap} (tag \code{esem20XX-replication})
-and archived on Zenodo (DOI on submission).
+and archived on Zenodo (DOI on submission). Every randomised step---the
+benchmark run order and the BCa bootstrap---is seeded (RNG seed
+\num{1729}); each hypothesis test uses \num{10000} bootstrap resamples.
 
 \bibliographystyle{ACM-Reference-Format}
 \bibliography{references}

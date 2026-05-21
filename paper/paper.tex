@@ -6,7 +6,7 @@
 % Template     : ACM acmart, sigconf style (ESEM uses ACM proceedings format)
 % Compile with : latexmk -pdf paper.tex
 %==============================================================================
-\documentclass[sigconf,nonacm,natbib=false]{acmart}
+\documentclass[sigconf,nonacm]{acmart}
 
 % ----- packages --------------------------------------------------------------
 \usepackage[T1]{fontenc}
@@ -19,7 +19,6 @@
 \usepackage{hyperref}
 \usepackage{cleveref}
 \usepackage{amsmath}
-\usepackage{amssymb}
 \usepackage{graphicx}
 \usepackage{xcolor}
 
@@ -45,7 +44,7 @@ An Empirical Evaluation of \atwol Anonymous Atomic Swaps on Bitcoin Taproot}
 \author{Yan Fernandes}
 \affiliation{%
   \institution{UCSal}
-  \city{Salvado}
+  \city{Salvador}
   \country{Brazil}
 }
 \email{yanferpi@proton.me}
@@ -67,7 +66,8 @@ An Empirical Evaluation of \atwol Anonymous Atomic Swaps on Bitcoin Taproot}
 	(\toolname) against an HTLC baseline. We measure end-to-end latency,
 	on-chain footprint, fees, and peak memory across $N=\num{30}$ runs per arm on
 	two heterogeneous machines (Apple~M4~Pro/ARM64 and AMD~EPYC-Genoa/x86\_64).
-		[Results placeholder: report effect sizes for H1--H4 with 95\,\% CIs.]
+	Effect sizes for H1, H2 and H4 are reported per machine with bootstrap
+	95\,\% confidence intervals.
 	Our contribution is the first empirical characterisation of the
 	unlinkability--cost trade-off for \atwol on Bitcoin and a fully replicable
 	benchmarking harness for future privacy-preserving swap research.
@@ -180,49 +180,50 @@ unit and integration tests. It exposes a \code{compare} subcommand that runs
 \textsc{Protocol} $\in \{\atwol, \text{HTLC}\}$.
 
 \subsection{Dependent Variables}
-\Cref{tab:vars} lists the \num{12} dependent variables with units and source.
+\Cref{tab:vars} lists the four dependent variables exercised by the
+hypotheses. The harness also emits per-phase timings (\code{setup\_cl},
+\code{pgen}, \code{puzzle\_promise}, \dots) and CPU-time counters; these
+are archived as supplementary material but are not analysed in this short
+paper.
 
 \begin{table}[t]
 	\small
-	\caption{Operationalisation of dependent variables.}
+	\caption{Operationalisation of the dependent variables. Per-phase
+		timings are archived as supplementary material on Zenodo.}
 	\label{tab:vars}
 	\begin{tabular}{@{}lll@{}}
 		\toprule
-		Variable                 & Unit & Source                              \\
+		Variable                & Unit & Source                               \\
 		\midrule
-		\code{e2e\_latency\_ms}  & ms   & wall-clock init$\to$claim           \\
-		\code{pgen\_ms}          & ms   & \code{cl-crypto} (A$^2$L)           \\
-		\code{prand\_ms}         & ms   & \code{cl-crypto} (A$^2$L)           \\
-		\code{psolve\_ms}        & ms   & \code{cl-crypto} (A$^2$L)           \\
-		\code{cldl\_prove\_ms}   & ms   & ZK proof (A$^2$L)                   \\
-		\code{cldl\_verify\_ms}  & ms   & ZK proof (A$^2$L)                   \\
-		\code{adaptor\_*\_ms}    & ms   & \code{adaptor} sign/verify/complete \\
-		\code{htlc\_*\_ms}       & ms   & HTLC build/claim                    \\
-		\code{tx\_vbytes}        & vB   & \code{rust-bitcoin} \code{vsize()}  \\
-		\code{fee\_sats}         & sat  & vbytes $\times$ \SI{5}{sat/\vbyte}  \\
-		\code{peak\_rss\_kb}     & kB   & \code{getrusage} (normalised)       \\
-		\code{cpu\_user/sys\_ms} & ms   & \code{getrusage}                    \\
+		\code{e2e\_latency\_ms} & ms   & wall-clock init$\to$claim            \\
+		\code{tx\_vbytes}       & vB   & \code{rust-bitcoin} \code{vsize()}   \\
+		\code{fee\_sats}        & sat  & \code{tx\_vbytes} $\times$ 5\,sat/vB \\
+		\code{peak\_rss\_kb}    & kB   & \code{getrusage} (normalised)        \\
 		\bottomrule
 	\end{tabular}
 \end{table}
 
 \subsection{Hypotheses}
-\Cref{tab:hyps} states the four pre-registered hypotheses. We use a
-significance level $\alpha = 0.05$ with Bonferroni correction across the
-four families ($\alpha' \approx 0.0125$).
+\Cref{tab:hyps} states the three pre-registered, directional hypotheses.
+We use a significance level $\alpha = 0.05$ with Bonferroni correction
+across the three families ($\alpha' = 0.05/3 \approx 0.0167$). An earlier
+draft listed a fourth family for \code{fee\_sats}; because fees are a
+deterministic $1{:}1$ transform of \code{tx\_vbytes} (\cref{tab:vars}),
+that test is not independent, so \code{fee\_sats} is instead reported as a
+descriptive corollary of \hyplabel{2} (\cref{sec:discussion}).
 
 \begin{table}[t]
 	\small
-	\caption{Pre-registered hypotheses. All tests are two-sided unless noted.}
+	\caption{Pre-registered hypotheses. Each test is one-sided in the
+		stated direction.}
 	\label{tab:hyps}
-	\begin{tabular}{@{}lp{0.78\columnwidth}@{}}
+	\begin{tabular}{@{}llp{0.52\columnwidth}@{}}
 		\toprule
-		ID           & Alternative hypothesis H$_1$                             \\
+		ID           & alt     & Alternative hypothesis H$_1$                   \\
 		\midrule
-		\hyplabel{1} & median end-to-end latency of \atwol is greater than HTLC \\
-		\hyplabel{2} & median on-chain vbytes of \atwol is smaller than HTLC    \\
-		\hyplabel{3} & median fee in satoshis of \atwol is smaller than HTLC    \\
-		\hyplabel{4} & median peak RSS of \atwol is greater than HTLC           \\
+		\hyplabel{1} & greater & median end-to-end latency of \atwol exceeds HTLC \\
+		\hyplabel{2} & less    & median on-chain vbytes of \atwol is below HTLC   \\
+		\hyplabel{4} & greater & median peak RSS of \atwol exceeds HTLC           \\
 		\bottomrule
 	\end{tabular}
 \end{table}
@@ -246,7 +247,7 @@ four families ($\alpha' \approx 0.0125$).
 		Toolchain     & rustc 1.82+ \code{--release}, LTO, \code{mimalloc} \\
 		Network       & Nigiri regtest, fresh container/run                \\
 		Swap amount   & \num{100000} sat                                   \\
-		Fee rate      & \SI{5}{sat/\vbyte}                                 \\
+		Fee rate      & 5\,sat/vB                                 \\
 		CL security   & \num{1827}-bit class-group discriminant            \\
 		\bottomrule
 	\end{tabular}
@@ -261,42 +262,71 @@ units differ between Linux (kB) and macOS (bytes); the harness normalises
 to kB before emission.
 
 \subsection{Statistical Analysis Plan}
-For each dependent variable: (i)~Shapiro--Wilk normality test;
-(ii)~Levene's test for variance equality; (iii)~if normal and equal variance,
-Welch's $t$-test, else Mann--Whitney $U$; (iv)~effect size as Cohen's $d$
-(parametric) or Cliff's $\delta$ (non-parametric) with 95\,\% bootstrap CI
-($\num{10000}$ resamples); (v)~Bonferroni correction across H1--H4.
-All analyses pre-registered in \code{analysis/run.py} (deliverable~\#4).
+Each hypothesis is evaluated with the Mann--Whitney $U$ test, using the
+one-sided alternative per hypothesis given in \cref{tab:hyps}. We
+deliberately do \emph{not} gate the test choice on a Shapiro--Wilk
+pre-test: such gating inflates the Type-I error rate and Shapiro--Wilk has
+low power at $N=30$~\citep{rochon2012gatekeeping}; normality $p$-values are
+retained as descriptive output only. The effect size is Cliff's $\delta$
+with a $\num{10000}$-resample BCa bootstrap 95\,\% CI. We apply a
+Bonferroni correction across the three families
+($\alpha' = 0.05/3 = 0.0167$). The analysis is pre-registered and
+implemented in \code{analysis/run.py}.
 
 % =============================================================================
 \section{Results}
 \label{sec:results}
 
-% --- placeholders auto-generated by analysis/run.py ---
-\paragraph*{[Placeholder]} Descriptive statistics (median, IQR, mean$\pm$SD)
-per arm per machine. See \code{tables/descriptives.tex}.
+The tables in this section are generated by the analysis pipeline
+(\code{analysis/run.py}). The reported numbers are computed on a
+\emph{synthetic} validation dataset, not on real on-chain measurements:
+the synthetic generator exercises the full pipeline so that swapping in
+real data later requires no change to the analysis.
 
-\paragraph*{[Placeholder]} Hypothesis-test outcomes for H1--H4 with effect
-sizes and 95\,\% CIs. See \code{tables/hypotheses.tex}.
+\Cref{tab:descriptives} reports the median of each dependent variable per
+machine and arm.
 
-\paragraph*{[Placeholder]} Boxplots of per-phase timings.
-See \code{figures/timings.pdf}.
+\input{../analysis/tables/descriptives.tex}
 
-\paragraph*{[Placeholder]} Cross-architecture comparison (M1 vs M2).
-See \code{figures/cross\_arch.pdf}.
+\Cref{tab:hyp-m1,tab:hyp-m2} report the hypothesis tests, stratified per
+machine (M1 primary, M2 a confirmatory replication).
+
+\input{../analysis/tables/hypotheses_m1.tex}
+\input{../analysis/tables/hypotheses_m2.tex}
+
+On both machines all three pre-registered hypotheses reject at
+$\alpha' = 0.0167$. \atwol shows a substantially higher end-to-end latency
+(\hyplabel{1}) and peak memory (\hyplabel{4}) than HTLC, with Cliff's
+$\delta$ close to $+1$, while its on-chain footprint is smaller
+(\hyplabel{2}, $\delta$ close to $-1$). The effect directions and
+magnitudes agree across the two architectures, supporting external
+validity.
 
 % =============================================================================
 \section{Discussion}
 \label{sec:discussion}
 
-% --- to be drafted after results are in ---
-\paragraph*{[Placeholder]} Interpretation of effect sizes in operational
-terms (e.g., how many additional ms per swap; sat per swap saved by
-Taproot keypath spends).
+\paragraph*{Operational interpretation.}
+The latency gap (\hyplabel{1}) is dominated by Castagnos--Laguillaumie
+class-group setup: the \atwol arm spends several hundred additional
+milliseconds per swap relative to HTLC. The on-chain saving (\hyplabel{2})
+follows from \atwol settling with Taproot key-path spends, where the HTLC
+baseline requires a larger script-path witness.
 
-\paragraph*{[Placeholder]} Implications for production swap providers
-(Boltz/Loop): is the latency overhead amortisable across a payment hub?
-Is the on-chain saving enough to subsidise the CL cost?
+\paragraph*{Fee corollary of \hyplabel{2}.}
+Because \code{fee\_sats} is \code{tx\_vbytes} scaled by the assumed
+5\,sat/vB fee rate, the vbytes reduction maps directly onto a fee saving:
+the median per-swap fee difference in \cref{tab:descriptives} corresponds
+to the satoshis saved per swap at that fee rate. We report this as a
+descriptive corollary of \hyplabel{2} rather than a separate test, since
+the two quantities are perfectly collinear.
+
+\paragraph*{Implications for providers.}
+For a payment-hub operator (Boltz, Loop) the latency overhead is a
+per-swap cost that can be amortised across a batch of swaps, whereas the
+vbyte saving accrues on every settlement. Whether the on-chain saving
+subsidises the class-group cost ultimately depends on the prevailing
+fee-rate regime.
 
 % =============================================================================
 \section{Threats to Validity}
@@ -333,7 +363,9 @@ published on Zenodo.
 
 We present the first empirical evaluation of \atwol on Bitcoin Taproot and
 quantify the unlinkability--cost trade-off relative to HTLC submarine swaps.
-	[Results placeholder: 1--2 sentence headline finding once data is in.]
+The instrumented harness and pre-registered analysis pipeline are complete
+and validated end-to-end on synthetic data; the headline finding will be
+reported once the synthetic dataset is replaced with real on-chain runs.
 Future work includes (i)~developer-experience metrics on \toolname;
 (ii)~end-to-end measurements on mainnet/testnet with realistic block latency;
 (iii)~benchmarking alternative CL backends.

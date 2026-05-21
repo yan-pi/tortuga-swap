@@ -149,7 +149,9 @@ class TestResult:
 
 def run_test(machine, hyp, variable, alt, a2l, htlc, rng) -> TestResult:
     """Mann-Whitney U test plus Cliff's delta with a BCa CI (B3)."""
-    u_stat, p_value = stats.mannwhitneyu(a2l, htlc, alternative=alt)
+    u_stat, p_value = stats.mannwhitneyu(
+        a2l, htlc, alternative=alt, method="asymptotic", use_continuity=True
+    )
     delta = cliffs_delta(a2l, htlc)
     ci_low, ci_high = cliffs_delta_ci(a2l, htlc, rng)
     return TestResult(
@@ -283,22 +285,28 @@ def main():
     df = pd.read_csv(args.input)
     per_run = derive_per_run(df)
     machines = sorted(per_run["machine"].unique())
-    rng = np.random.default_rng(args.seed)
+
+    # One independent bootstrap stream per (machine, hypothesis) cell, so the
+    # BCa confidence intervals are not correlated across tests (M7).
+    child_seeds = np.random.SeedSequence(args.seed).spawn(
+        len(machines) * len(HYPOTHESES)
+    )
 
     args.tables_dir.mkdir(parents=True, exist_ok=True)
     all_results: list[TestResult] = []
     fee_notes: list[dict] = []
 
-    for machine in machines:
+    for mi, machine in enumerate(machines):
         sub = per_run[per_run["machine"] == machine]
         machine_results = []
-        for hyp, variable, alt in HYPOTHESES:
+        for hi, (hyp, variable, alt) in enumerate(HYPOTHESES):
             a2l = sub[sub["arm"] == "a2l"][variable].dropna().to_numpy()
             htlc = sub[sub["arm"] == "htlc"][variable].dropna().to_numpy()
             if a2l.size == 0 or htlc.size == 0:
                 # e.g. H2 on a machine with no on-chain runs (no vbytes rows).
                 print(f"[run] {machine} {hyp} {variable}: no data -- skipped")
                 continue
+            rng = np.random.default_rng(child_seeds[mi * len(HYPOTHESES) + hi])
             machine_results.append(
                 run_test(machine, hyp, variable, alt, a2l, htlc, rng)
             )

@@ -107,10 +107,17 @@ where
 {
     let cell = Arc::new(Mutex::new(std::mem::take(&mut rec)));
     let result = RECORDER.scope(Arc::clone(&cell), f).await;
-    let final_rec = match Arc::try_unwrap(cell) {
-        Ok(mutex) => mutex.into_inner().unwrap_or_else(|e| e.into_inner()),
-        Err(shared) => shared.lock().unwrap_or_else(|e| e.into_inner()).clone(),
+    // At end of scope the recorder must be uniquely owned. A surviving clone
+    // means a record sink leaked out of the scope -- fail loud rather than
+    // silently returning a stale clone and dropping later records (m5).
+    let mutex = match Arc::try_unwrap(cell) {
+        Ok(mutex) => mutex,
+        Err(_) => panic!(
+            "recorder Arc still shared at end of scope; \
+             a recorder clone outlived its scope() call"
+        ),
     };
+    let final_rec = mutex.into_inner().unwrap_or_else(|e| e.into_inner());
     (final_rec, result)
 }
 
@@ -148,7 +155,9 @@ impl Timer {
 
 impl Drop for Timer {
     fn drop(&mut self) {
-        let micros = self.start.elapsed().as_micros() as u64;
+        // Duration::as_micros is u128; saturate rather than wrap on the
+        // (only theoretically reachable) overflow (m9).
+        let micros = u64::try_from(self.start.elapsed().as_micros()).unwrap_or(u64::MAX);
         record_us(self.phase, micros);
     }
 }
@@ -178,6 +187,13 @@ impl Rusage {
         } else {
             peak_rss_raw
         };
+        // Sanity check: any live process has a non-trivial RSS. A value far
+        // below this floor would mean ru_maxrss units were misjudged -- e.g.
+        // a macOS kernel reporting kiB while this code assumed bytes (m10).
+        debug_assert!(
+            peak_rss_kib >= 256,
+            "implausible peak RSS {peak_rss_kib} kiB -- ru_maxrss unit mismatch?"
+        );
         Self {
             peak_rss_kib,
             user_us: timeval_us(u.ru_utime),

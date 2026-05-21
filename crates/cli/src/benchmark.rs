@@ -105,7 +105,7 @@ async fn run_one(run_id: &str, arm: Arm, amount: u64, on_chain: bool) -> Result<
     .await;
     result.context("swap run failed")?;
 
-    let elapsed_us = start.elapsed().as_micros() as u64;
+    let elapsed_us = u64::try_from(start.elapsed().as_micros()).unwrap_or(u64::MAX);
     let after = Rusage::snapshot();
     let cpu = after.delta(before);
 

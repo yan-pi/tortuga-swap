@@ -71,11 +71,13 @@ pub async fn run_and_report(amount_sats: u64) -> Result<A2lReport> {
     let receiver_sk = SecretKey::new(&mut rng);
     let receiver_pk = PublicKey::from_secret_key(&secp, &receiver_sk);
 
+    let _t_imem_setup_cl = std::time::Instant::now();
     println!("Step 0: Setup");
     println!("  Generating CL group parameters (this may take a moment)...");
 
     let cl_setup = ClSetup::new();
     let tumbler_kp = TumblerKeyPair::generate(&cl_setup);
+    tortuga_metrics::record_us("setup_cl", _t_imem_setup_cl.elapsed().as_micros() as u64);
 
     println!("  CL group ready. Amount: {} sats", amount_sats);
     println!(
@@ -90,7 +92,9 @@ pub async fn run_and_report(amount_sats: u64) -> Result<A2lReport> {
     // Step 1: Tumbler generates puzzle
     println!();
     println!("Step 1: Tumbler generates puzzle (secret alpha)");
+    let _t_imem_pgen = std::time::Instant::now();
     let (puzzle, alpha) = tumbler::create_puzzle(&cl_setup, &tumbler_kp);
+    tortuga_metrics::record_us("pgen", _t_imem_pgen.elapsed().as_micros() as u64);
     let original_point =
         curv_point_to_public_key(&puzzle.point).context("failed to convert puzzle point")?;
     println!(
@@ -104,6 +108,7 @@ pub async fn run_and_report(amount_sats: u64) -> Result<A2lReport> {
 
     let tx2_sighash = compute_dummy_sighash(b"tx2-tumbler-to-receiver");
 
+    let _t_imem_puzzle_promise = std::time::Instant::now();
     let promise_output = promise::receiver_process(
         &secp,
         &cl_setup,
@@ -113,6 +118,7 @@ pub async fn run_and_report(amount_sats: u64) -> Result<A2lReport> {
         &tx2_sighash,
     )
     .context("Puzzle Promise failed")?;
+    tortuga_metrics::record_us("puzzle_promise", _t_imem_puzzle_promise.elapsed().as_micros() as u64);
 
     let tx2_adaptor_point = curv_point_to_public_key(&promise_output.randomized_puzzle.point)
         .context("convert randomized puzzle point")?;
@@ -129,6 +135,7 @@ pub async fn run_and_report(amount_sats: u64) -> Result<A2lReport> {
 
     let tx1_sighash = compute_dummy_sighash(b"tx1-sender-to-tumbler");
 
+    let _t_imem_puzzle_solver = std::time::Instant::now();
     let solver_output = solver::sender_process(
         &secp,
         &cl_setup,
@@ -138,6 +145,7 @@ pub async fn run_and_report(amount_sats: u64) -> Result<A2lReport> {
         &tx1_sighash,
     )
     .context("Puzzle Solver failed")?;
+    tortuga_metrics::record_us("puzzle_solver", _t_imem_puzzle_solver.elapsed().as_micros() as u64);
 
     let tx1_adaptor_point =
         curv_point_to_public_key(&solver_output.double_randomized_puzzle.point)
@@ -153,6 +161,7 @@ pub async fn run_and_report(amount_sats: u64) -> Result<A2lReport> {
     println!();
     println!("Step 4: Tumbler solves puzzle + completes tx1 signature");
 
+    let _t_imem_psolve_complete_tx1 = std::time::Instant::now();
     let tumbler_solution = tumbler::solve_and_complete(
         &cl_setup,
         &tumbler_kp,
@@ -160,6 +169,7 @@ pub async fn run_and_report(amount_sats: u64) -> Result<A2lReport> {
         &solver_output.pre_sig,
     )
     .context("Tumbler solve failed")?;
+    tortuga_metrics::record_us("psolve_complete_tx1", _t_imem_psolve_complete_tx1.elapsed().as_micros() as u64);
 
     let (sender_xonly, _) = sender_pk.x_only_public_key();
     let msg = secp256k1::Message::from_digest(tx1_sighash);
@@ -172,9 +182,11 @@ pub async fn run_and_report(amount_sats: u64) -> Result<A2lReport> {
     println!();
     println!("Step 5: Sender extracts adaptor secret from tx1");
 
+    let _t_imem_extract_secret = std::time::Instant::now();
     let extracted =
         solver::sender_extract(&tumbler_solution.tx1_signature, &solver_output.pre_sig)
             .context("secret extraction failed")?;
+    tortuga_metrics::record_us("extract_secret", _t_imem_extract_secret.elapsed().as_micros() as u64);
 
     println!(
         "  Extracted secret: {}...",
@@ -185,8 +197,10 @@ pub async fn run_and_report(amount_sats: u64) -> Result<A2lReport> {
     println!();
     println!("Step 6: Tumbler completes tx2 signature");
 
+    let _t_imem_complete_tx2 = std::time::Instant::now();
     let tx2_sig = tumbler::complete_tx2(&alpha, &promise_output.rho, &promise_output.pre_sig)
         .context("tx2 completion failed")?;
+    tortuga_metrics::record_us("complete_tx2", _t_imem_complete_tx2.elapsed().as_micros() as u64);
 
     let (receiver_xonly, _) = receiver_pk.x_only_public_key();
     let msg2 = secp256k1::Message::from_digest(tx2_sighash);
@@ -236,8 +250,10 @@ pub async fn run_on_chain_and_report(amount_sats: u64) -> Result<A2lReport> {
     println!("Step 0: Setup");
     println!("  Generating CL group parameters...");
 
+    let _t_onch_setup_cl = std::time::Instant::now();
     let cl_setup = ClSetup::new();
     let tumbler_kp = TumblerKeyPair::generate(&cl_setup);
+    tortuga_metrics::record_us("setup_cl", _t_onch_setup_cl.elapsed().as_micros() as u64);
 
     println!("  CL group ready.");
 
@@ -325,10 +341,13 @@ pub async fn run_on_chain_and_report(amount_sats: u64) -> Result<A2lReport> {
 
     // Step 3: Tumbler generates puzzle
     println!("Step 3: Tumbler generates puzzle");
+    let _t_onch_pgen = std::time::Instant::now();
     let (puzzle, alpha) = tumbler::create_puzzle(&cl_setup, &tumbler_kp);
+    tortuga_metrics::record_us("pgen", _t_onch_pgen.elapsed().as_micros() as u64);
 
     // Step 4: Puzzle Promise - receiver adaptor-signs tx2 with tweaked key
     println!("Step 4: Puzzle Promise (Receiver)");
+    let _t_onch_puzzle_promise = std::time::Instant::now();
     let promise_output = promise::receiver_process(
         &secp,
         &cl_setup,
@@ -338,6 +357,7 @@ pub async fn run_on_chain_and_report(amount_sats: u64) -> Result<A2lReport> {
         &tx2_sighash,
     )
     .context("Puzzle Promise failed")?;
+    tortuga_metrics::record_us("puzzle_promise", _t_onch_puzzle_promise.elapsed().as_micros() as u64);
 
     let tx2_adaptor_point = curv_point_to_public_key(&promise_output.randomized_puzzle.point)?;
     let tx2_adaptor_hex = hex::encode(tx2_adaptor_point.serialize());
@@ -348,6 +368,7 @@ pub async fn run_on_chain_and_report(amount_sats: u64) -> Result<A2lReport> {
 
     // Step 5: Puzzle Solver - sender adaptor-signs tx1 with tweaked key
     println!("Step 5: Puzzle Solver (Sender)");
+    let _t_onch_puzzle_solver = std::time::Instant::now();
     let solver_output = solver::sender_process(
         &secp,
         &cl_setup,
@@ -357,6 +378,7 @@ pub async fn run_on_chain_and_report(amount_sats: u64) -> Result<A2lReport> {
         &tx1_sighash,
     )
     .context("Puzzle Solver failed")?;
+    tortuga_metrics::record_us("puzzle_solver", _t_onch_puzzle_solver.elapsed().as_micros() as u64);
 
     let tx1_adaptor_point =
         curv_point_to_public_key(&solver_output.double_randomized_puzzle.point)?;
@@ -368,6 +390,7 @@ pub async fn run_on_chain_and_report(amount_sats: u64) -> Result<A2lReport> {
 
     // Step 6: Tumbler solves puzzle and completes tx1
     println!("Step 6: Tumbler solves + completes tx1");
+    let _t_onch_psolve_complete_tx1 = std::time::Instant::now();
     let tumbler_solution = tumbler::solve_and_complete(
         &cl_setup,
         &tumbler_kp,
@@ -375,6 +398,7 @@ pub async fn run_on_chain_and_report(amount_sats: u64) -> Result<A2lReport> {
         &solver_output.pre_sig,
     )
     .context("Tumbler solve failed")?;
+    tortuga_metrics::record_us("psolve_complete_tx1", _t_onch_psolve_complete_tx1.elapsed().as_micros() as u64);
 
     // Verify completed sig against tweaked sender key
     let tweaked_sender_pk = PublicKey::from_secret_key(&secp, &sender_tweaked);
@@ -386,6 +410,7 @@ pub async fn run_on_chain_and_report(amount_sats: u64) -> Result<A2lReport> {
     // Attach witness and broadcast tx1
     let mut tx1_signed = tx1;
     tx1_signed.input[0].witness = build_keypath_witness(&tumbler_solution.tx1_signature);
+    tortuga_metrics::record("tx1", "vbytes", tx1_signed.vsize() as f64, "vB");
     let tx1_hex = tx_to_hex(&tx1_signed);
     let tx1_txid = esplora
         .broadcast(&tx1_hex)
@@ -403,8 +428,10 @@ pub async fn run_on_chain_and_report(amount_sats: u64) -> Result<A2lReport> {
 
     // Step 8: Tumbler completes tx2
     println!("Step 8: Tumbler completes tx2");
+    let _t_onch_complete_tx2 = std::time::Instant::now();
     let tx2_sig = tumbler::complete_tx2(&alpha, &promise_output.rho, &promise_output.pre_sig)
         .context("complete tx2")?;
+    tortuga_metrics::record_us("complete_tx2", _t_onch_complete_tx2.elapsed().as_micros() as u64);
 
     // Verify completed sig against tweaked receiver key
     let tweaked_receiver_pk = PublicKey::from_secret_key(&secp, &receiver_tweaked);
@@ -415,6 +442,7 @@ pub async fn run_on_chain_and_report(amount_sats: u64) -> Result<A2lReport> {
 
     let mut tx2_signed = tx2;
     tx2_signed.input[0].witness = build_keypath_witness(&tx2_sig);
+    tortuga_metrics::record("tx2", "vbytes", tx2_signed.vsize() as f64, "vB");
     let tx2_hex = tx_to_hex(&tx2_signed);
     let tx2_txid = esplora
         .broadcast(&tx2_hex)

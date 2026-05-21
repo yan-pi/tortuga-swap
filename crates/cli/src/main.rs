@@ -6,6 +6,7 @@
 use anyhow::{Context, Result};
 use clap::Parser;
 
+mod benchmark;
 mod setup;
 mod swap_a2l;
 mod swap_htlc;
@@ -40,6 +41,28 @@ enum Cmd {
         #[arg(long)]
         on_chain: bool,
     },
+
+    /// Benchmark: run N reps of A2L and HTLC and emit long-format CSV.
+    Benchmark {
+        /// Repetitions per arm (after warmup).
+        #[arg(long, default_value = "30")]
+        reps: u32,
+        /// Discarded warmup reps per arm.
+        #[arg(long, default_value = "3")]
+        warmup: u32,
+        /// Swap amount in satoshis.
+        #[arg(long, default_value = "100000")]
+        amount_sats: u64,
+        /// Use Nigiri regtest (else in-memory).
+        #[arg(long)]
+        on_chain: bool,
+        /// Output CSV path (appended). Created if missing.
+        #[arg(long, default_value = "data/raw/bench.csv")]
+        out: std::path::PathBuf,
+        /// Seed for randomised run order.
+        #[arg(long, default_value = "1729")]
+        seed: u64,
+    },
 }
 
 #[tokio::main]
@@ -69,6 +92,28 @@ async fn main() -> Result<()> {
             }
         }
         Cmd::Compare { on_chain } => run_compare(on_chain).await?,
+        Cmd::Benchmark {
+            reps,
+            warmup,
+            amount_sats,
+            on_chain,
+            out,
+            seed,
+        } => {
+            // Ensure parent dir exists.
+            if let Some(parent) = out.parent() {
+                std::fs::create_dir_all(parent).ok();
+            }
+            benchmark::run(benchmark::Config {
+                reps,
+                warmup,
+                amount_sats,
+                on_chain,
+                out,
+                seed,
+            })
+            .await?;
+        }
     }
 
     Ok(())

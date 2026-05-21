@@ -12,6 +12,7 @@ cl-crypto = { path = "../cl-crypto" }
 adaptor = { path = "../adaptor" }
 protocol = { path = "../protocol" }
 tortuga-bitcoin = { path = "../bitcoin" }
+tortuga-metrics = { path = "../metrics" }
 clap.workspace = true
 tokio.workspace = true
 serde.workspace = true
@@ -24,3 +25,6 @@ class_group.workspace = true
 rand.workspace = true
 bitcoin.workspace = true
 sha2.workspace = true
+csv.workspace = true
+gethostname.workspace = true
+libc.workspace = true

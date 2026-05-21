@@ -1,0 +1,13 @@
+[package]
+name = "tortuga-metrics"
+version = "0.1.0"
+edition = "2021"
+description = "Phase-timing + getrusage instrumentation for tortuga-swap benchmarking."
+
+[dependencies]
+tokio.workspace = true
+serde.workspace = true
+anyhow.workspace = true
+csv.workspace = true
+gethostname.workspace = true
+libc.workspace = true

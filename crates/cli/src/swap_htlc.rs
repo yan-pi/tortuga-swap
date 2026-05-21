@@ -68,23 +68,29 @@ pub async fn run_and_report(amount_sats: u64) -> Result<HtlcReport> {
     let (tumbler_xonly, _) = tumbler_pk.x_only_public_key();
 
     // Receiver generates preimage and hash
+    let _t_imem_preimage_hash = std::time::Instant::now();
     let mut preimage = [0u8; 32];
     rand::RngCore::fill_bytes(&mut rng, &mut preimage);
     let hash = hash_preimage(&preimage);
+    tortuga_metrics::record_us("preimage_hash", _t_imem_preimage_hash.elapsed().as_micros() as u64);
     let hash_hex = hex::encode(hash);
 
     println!("Step 1: Receiver generates preimage");
     println!("  Preimage:  {}...", &hex::encode(preimage)[..16]);
     println!("  Hash:      {}...", &hash_hex[..16]);
 
+    let _t_imem_htlc_script_tx1 = std::time::Instant::now();
     let timelock = 144_u16;
     let htlc_script_tx1 = create_htlc_script(&hash, &receiver_xonly, &sender_xonly, timelock);
+    tortuga_metrics::record_us("htlc_script_tx1", _t_imem_htlc_script_tx1.elapsed().as_micros() as u64);
 
     println!("Step 2: Sender locks {} sats in HTLC (tx1)", amount_sats);
     println!("  Script:    OP_IF OP_SHA256 <hash> OP_EQUALVERIFY <receiver> OP_CHECKSIG OP_ELSE <144> OP_CSV ...");
     println!("  Hash in tx1 script: {}...", &hash_hex[..16]);
 
+    let _t_imem_htlc_script_tx2 = std::time::Instant::now();
     let htlc_script_tx2 = create_htlc_script(&hash, &receiver_xonly, &tumbler_xonly, timelock);
+    tortuga_metrics::record_us("htlc_script_tx2", _t_imem_htlc_script_tx2.elapsed().as_micros() as u64);
 
     println!("Step 3: Tumbler locks payment in HTLC (tx2) using SAME hash");
     println!("  Hash in tx2 script: {}...", &hash_hex[..16]);
@@ -92,7 +98,9 @@ pub async fn run_and_report(amount_sats: u64) -> Result<HtlcReport> {
     let sig_bytes = [0u8; 64];
     let sig =
         secp256k1::schnorr::Signature::from_slice(&sig_bytes).expect("dummy sig for demo");
+    let _t_imem_claim_witness = std::time::Instant::now();
     let claim_witness = create_htlc_claim_witness(&sig, &preimage);
+    tortuga_metrics::record_us("claim_witness", _t_imem_claim_witness.elapsed().as_micros() as u64);
 
     println!("Step 4: Receiver claims tx2 by revealing preimage on-chain");
     println!("  Preimage revealed: {}...", &hex::encode(preimage)[..16]);
@@ -148,9 +156,11 @@ pub async fn run_on_chain_and_report(amount_sats: u64) -> Result<HtlcReport> {
     let (tumbler_xonly, _) = tumbler_pk.x_only_public_key();
 
     // Generate preimage and hash
+    let _t_onch_preimage_hash = std::time::Instant::now();
     let mut preimage = [0u8; 32];
     rand::RngCore::fill_bytes(&mut rng, &mut preimage);
     let hash = hash_preimage(&preimage);
+    tortuga_metrics::record_us("preimage_hash", _t_onch_preimage_hash.elapsed().as_micros() as u64);
     let hash_hex = hex::encode(hash);
 
     println!("Step 1: Generate preimage");
@@ -201,8 +211,10 @@ pub async fn run_on_chain_and_report(amount_sats: u64) -> Result<HtlcReport> {
     println!("    Tumbler: {} sats", tumbler_balance);
 
     // Build tx1: sender -> HTLC-locked P2TR (receiver claims with preimage)
+    let _t_onch_build_htlc_output_tx1 = std::time::Instant::now();
     let (htlc_txout1, _spend_info1) =
         create_p2tr_with_refund(&secp, receiver_xonly, sender_xonly, timelock, amount);
+    tortuga_metrics::record_us("build_htlc_output_tx1", _t_onch_build_htlc_output_tx1.elapsed().as_micros() as u64);
 
     let htlc_script_tx1 = create_htlc_script(&hash, &receiver_xonly, &sender_xonly, timelock);
 
@@ -230,8 +242,11 @@ pub async fn run_on_chain_and_report(amount_sats: u64) -> Result<HtlcReport> {
             .context("tweak sender")?;
     let kp1 = secp256k1::Keypair::from_secret_key(&secp, &tweaked_sender);
     let msg1 = secp256k1::Message::from_digest(sighash1);
+    let _t_onch_sign_tx1 = std::time::Instant::now();
     let sig1 = secp.sign_schnorr(&msg1, &kp1);
+    tortuga_metrics::record_us("sign_tx1", _t_onch_sign_tx1.elapsed().as_micros() as u64);
     tx1.input[0].witness = tortuga_bitcoin::taproot::build_keypath_witness(&sig1);
+    tortuga_metrics::record("tx1", "vbytes", tx1.vsize() as f64, "vB");
 
     println!("Step 3: Broadcast tx1 (sender -> HTLC lock)");
     let tx1_hex = tx_to_hex(&tx1);
@@ -243,8 +258,10 @@ pub async fn run_on_chain_and_report(amount_sats: u64) -> Result<HtlcReport> {
     println!("  HTLC hash in tx1: {}...", &hash_hex[..16]);
 
     // Build tx2: tumbler -> HTLC-locked P2TR (same hash!)
+    let _t_onch_build_htlc_output_tx2 = std::time::Instant::now();
     let (htlc_txout2, _spend_info2) =
         create_p2tr_with_refund(&secp, receiver_xonly, tumbler_xonly, timelock, amount);
+    tortuga_metrics::record_us("build_htlc_output_tx2", _t_onch_build_htlc_output_tx2.elapsed().as_micros() as u64);
 
     let tx2_prevtxid: bitcoin::Txid = tumbler_utxo.txid.parse().context("parse tumbler txid")?;
     let send_amount2 = bitcoin::Amount::from_sat(tumbler_utxo.value) - fee;
@@ -273,8 +290,11 @@ pub async fn run_on_chain_and_report(amount_sats: u64) -> Result<HtlcReport> {
             .context("tweak tumbler")?;
     let kp2 = secp256k1::Keypair::from_secret_key(&secp, &tweaked_tumbler);
     let msg2 = secp256k1::Message::from_digest(sighash2);
+    let _t_onch_sign_tx2 = std::time::Instant::now();
     let sig2 = secp.sign_schnorr(&msg2, &kp2);
+    tortuga_metrics::record_us("sign_tx2", _t_onch_sign_tx2.elapsed().as_micros() as u64);
     tx2.input[0].witness = tortuga_bitcoin::taproot::build_keypath_witness(&sig2);
+    tortuga_metrics::record("tx2", "vbytes", tx2.vsize() as f64, "vB");
 
     println!("Step 4: Broadcast tx2 (tumbler -> HTLC lock, SAME hash!)");
     let tx2_hex = tx_to_hex(&tx2);

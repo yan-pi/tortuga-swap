@@ -16,3 +16,7 @@ Cargo.lock
 
 # Misc
 .DS_Store
+
+# Benchmark data
+/data/raw/
+*.csv

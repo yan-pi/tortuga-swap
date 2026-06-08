@@ -256,10 +256,12 @@ descriptive corollary of \hyplabel{2} (\cref{sec:discussion}).
 \subsection{Cross-Architecture Replication}
 We replicate the full design on two heterogeneous machines: M1 (Apple~M4~Pro,
 ARM64, macOS) and M2 (AMD~EPYC-Genoa, x86\_64, NixOS~24.11, kernel~6.6.94).
-This provides an external-validity probe against architecture-specific
-SIMD/aes-ni effects and OS-specific scheduler noise. \code{getrusage.ru\_maxrss}
-units differ between Linux (kibibytes) and macOS (bytes); the harness
-normalises to kiB before emission.
+This is a confirmatory replication: M1 is the primary machine and M2
+re-runs the identical design to confirm the effect directions hold on a
+different architecture (ARM64 vs x86\_64) and OS, rather than to generalise
+to a population of machines. \code{getrusage.ru\_maxrss} units differ
+between Linux (kibibytes) and macOS (bytes); the harness normalises to kiB
+before emission.
 
 \subsection{Statistical Analysis Plan}
 Each hypothesis is evaluated with the Mann--Whitney $U$ test, using the
@@ -340,22 +342,36 @@ Our metrics (latency, vbytes, fees, RSS) directly operationalise
 on-call burden) is out of scope for this short paper.
 
 \paragraph*{Internal.}
-JIT/warm-cache effects mitigated by 3 warm-up runs per arm; background
-load mitigated by a \code{systemd-run} cgroup (M2) and exclusive use (M1);
-allocator pinned (\code{mimalloc}); run order randomised within blocks of 10.
+Cold-cache and process-startup effects are mitigated by 3 warm-up runs per
+arm, discarded; three iterations suffice to absorb one-off binary loading
+and OS file-cache warming, after which per-run timings stabilise. Background
+load is mitigated by a \code{systemd-run} cgroup (M2) and exclusive use
+(M1); the allocator is pinned (\code{mimalloc}); run order is randomised
+within blocks.
 
 \paragraph*{External.}
 Generalisation to mainnet block latency is limited by regtest's artificial
 block intervals; we report \emph{protocol-internal} latency separately from
 on-chain confirmation latency. \toolname is the only \atwol implementation
-benchmarked; cross-architecture replication mitigates platform-specific
-generalisation concerns.
+benchmarked; the M2 confirmatory replication shows the reported effects are
+not an artefact of a single architecture.
 
 \paragraph*{Conclusion.}
-$N=30$ per arm gives power $\geq 0.80$ for Cliff's $\delta \geq 0.33$
-(post-hoc verification). Bonferroni correction is conservative but
-appropriate. Replication package frozen at commit \code{<hash>} and
-published on Zenodo.
+$N=30$ per arm gives power $\geq 0.80$ for Cliff's $\delta \geq 0.33$.
+\emph{Measurement reliability}: latency is a wall-clock interval taken from
+a monotonic clock at microsecond resolution, well below the
+millisecond-scale effects under test; peak RSS is a single \code{getrusage}
+high-water mark per run, not a sampled curve, so allocation transients
+between syscalls are not resolved. \emph{Fishing}: the hypotheses, their
+directional alternatives, the test, the effect-size estimator and $\alpha$
+were pre-registered before data collection, and the Bonferroni correction
+over three families guards against multiple-comparison inflation.
+\emph{Assumptions}: the Mann--Whitney $U$ test is distribution-free, so no
+normality or equal-variance assumption is made; reading it as a statement
+about medians assumes similarly shaped arm distributions, which the
+per-machine descriptive statistics (\cref{tab:descriptives}) let reviewers
+check. The replication package is frozen at the commit stamped into every
+CSV row and published on Zenodo.
 
 % =============================================================================
 \section{Conclusion and Future Work}

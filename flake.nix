@@ -19,7 +19,7 @@
       # and tools macOS lacks. The Rust toolchain also stays global (rustup),
       # so bacon / rust-analyzer keep working unchanged.
       devShells = forAllSystems (pkgs: {
-        default = pkgs.mkShellNoCC {
+        default = pkgs.mkShell {
           packages = [
             # gmp: required by rust-gmp-kzen (cl-crypto -> class_group -> curv).
             pkgs.gmp
@@ -30,6 +30,18 @@
             # bison: class_group's vendored PARI/GP needs bison 3.x to
             # process parse.y. macOS only ships bison 2.3.
             pkgs.bison
+
+            # Rust toolchain
+            pkgs.rustup
+
+            # C compiler for PARI/GP build (use gcc14 for compatibility)
+            pkgs.gcc14
+
+            # OpenSSL for reqwest (esplora client)
+            pkgs.openssl
+
+            # libclang for bindgen (class_group)
+            pkgs.llvmPackages.libclang
 
             # python + scientific stack for the statistical pipeline in
             # analysis/ (generate_synthetic.py, run.py).
@@ -43,8 +55,10 @@
           # With no cc-wrapper, point the system compiler/linker at gmp.
           shellHook = ''
             export LIBRARY_PATH="${pkgs.gmp}/lib''${LIBRARY_PATH:+:$LIBRARY_PATH}"
-            export CPATH="${pkgs.gmp.dev}/include''${CPATH:+:$CPATH}"
+            export CPATH="${pkgs.gmp.dev}/include:${pkgs.glibc.dev}/include''${CPATH:+:$CPATH}"
             export PKG_CONFIG_PATH="${pkgs.gmp.dev}/lib/pkgconfig''${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
+            export LIBCLANG_PATH="${pkgs.llvmPackages.libclang.lib}/lib"
+            export LDFLAGS="-lc ''${LDFLAGS:+$LDFLAGS}"
           '';
         };
       });

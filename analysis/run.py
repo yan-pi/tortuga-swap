@@ -311,9 +311,11 @@ def main():
                 run_test(machine, hyp, variable, alt, a2l, htlc, rng)
             )
         all_results.extend(machine_results)
+        # Sanitize machine name for filename (replace "/" with "-")
+        machine_slug = machine.lower().replace("/", "-").replace("\\", "-")
         emit_hypothesis_table(
             machine, machine_results,
-            args.tables_dir / f"hypotheses_{machine.lower()}.tex",
+            args.tables_dir / f"hypotheses_{machine_slug}.tex",
             args.seed,
         )
         fee_notes.append(fee_corollary(per_run, machine))

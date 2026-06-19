@@ -219,7 +219,7 @@ descriptive corollary of \hyplabel{2} (\cref{sec:discussion}).
 	\label{tab:hyps}
 	\begin{tabular}{@{}llp{0.52\columnwidth}@{}}
 		\toprule
-		ID           & alt     & Alternative hypothesis H$_1$                     \\
+		ID           & alt     & Alternative hypothesis H$_1$                   \\
 		\midrule
 		\hyplabel{1} & greater & median end-to-end latency of \atwol exceeds HTLC \\
 		\hyplabel{2} & less    & median on-chain vbytes of \atwol is below HTLC   \\
@@ -247,7 +247,7 @@ descriptive corollary of \hyplabel{2} (\cref{sec:discussion}).
 		Toolchain     & rustc 1.82+ \code{--release}, LTO, \code{mimalloc} \\
 		Network       & Nigiri regtest, fresh container/run                \\
 		Swap amount   & \num{100000} sat                                   \\
-		Fee rate      & 5\,sat/vB                                          \\
+		Fee rate      & 5\,sat/vB                                 \\
 		CL security   & \num{1827}-bit class-group discriminant            \\
 		\bottomrule
 	\end{tabular}
@@ -295,13 +295,11 @@ machine (M1 primary, M2 a confirmatory replication).
 \input{../analysis/tables/hypotheses_m1.tex}
 \input{../analysis/tables/hypotheses_m2.tex}
 
-On both machines, hypothesis \hyplabel{1} rejects at $\alpha' = 0.0167$:
-\atwol shows a substantially higher end-to-end latency than HTLC, with
-large effect sizes (M1: $\delta = +0.96$; M2: $\delta = +0.71$).
-Hypotheses \hyplabel{2} and \hyplabel{4} are retained on both machines:
-both protocols produce identical on-chain footprints (222\,vB per swap),
-and peak memory does not differ significantly. The effect directions are
-consistent across architectures, supporting external validity.
+On M1, hypothesis \hyplabel{1} rejects at $\alpha' = 0.0167$: \atwol shows
+a substantially higher end-to-end latency than HTLC, with Cliff's
+$\delta = +0.96$ (large effect). Hypotheses \hyplabel{2} and \hyplabel{4}
+are retained: both protocols produce identical on-chain footprints
+(222\,vB per swap), and peak memory does not differ significantly.
 
 % =============================================================================
 \section{Discussion}

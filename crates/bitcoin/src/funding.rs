@@ -1,30 +1,19 @@
-//! Regtest funding helpers for Nigiri faucet.
+//! Regtest funding helpers for Bitcoin Core RPC.
 //!
 //! Provides functions to fund addresses and mine blocks on regtest
-//! for testing A2L swap flows.
-
-use serde::Deserialize;
+//! for testing A2L swap flows. Works with both Nigiri and plain
+//! Bitcoin Core docker setups.
 
 use crate::{BitcoinError, Result};
 
-/// Default Nigiri faucet URL.
-const NIGIRI_FAUCET_URL: &str = "http://localhost:3000/faucet";
+/// Default Bitcoin RPC URL.
+const RPC_URL: &str = "http://localhost:18443";
 
-/// Default Nigiri Bitcoin RPC URL.
-const NIGIRI_RPC_URL: &str = "http://localhost:18443";
+/// Default Bitcoin RPC credentials.
+const RPC_USER: &str = "admin1";
+const RPC_PASS: &str = "123";
 
-/// Default Nigiri Bitcoin RPC credentials.
-const NIGIRI_RPC_USER: &str = "admin1";
-const NIGIRI_RPC_PASS: &str = "123";
-
-/// Faucet response containing the funding transaction ID.
-#[derive(Debug, Deserialize)]
-struct FaucetResponse {
-    #[serde(alias = "txId")]
-    txid: String,
-}
-
-/// Funds an address via Nigiri's faucet.
+/// Funds an address via Bitcoin Core RPC (sendtoaddress).
 ///
 /// # Arguments
 /// * `address` - Bitcoin address to fund
@@ -34,35 +23,57 @@ struct FaucetResponse {
 /// The funding transaction ID.
 ///
 /// # Errors
-/// Returns `BitcoinError::Esplora` if the faucet request fails.
+/// Returns `BitcoinError::Esplora` if the RPC request fails.
 pub async fn fund_from_faucet(address: &str, amount_btc: f64) -> Result<String> {
     let client = reqwest::Client::new();
 
+    // Use sendtoaddress RPC instead of Nigiri faucet
     let body = serde_json::json!({
-        "address": address,
-        "amount": amount_btc
+        "jsonrpc": "1.0",
+        "id": "fund",
+        "method": "sendtoaddress",
+        "params": [address, amount_btc]
     });
 
     let response = client
-        .post(NIGIRI_FAUCET_URL)
+        .post(RPC_URL)
+        .basic_auth(RPC_USER, Some(RPC_PASS))
         .json(&body)
         .send()
         .await
-        .map_err(|e| BitcoinError::Esplora(format!("faucet request failed: {e}")))?;
+        .map_err(|e| BitcoinError::Esplora(format!("RPC sendtoaddress failed: {e}")))?;
 
     if !response.status().is_success() {
         let error_text = response.text().await.unwrap_or_default();
         return Err(BitcoinError::Esplora(format!(
-            "faucet failed: {error_text}"
+            "sendtoaddress failed: {error_text}"
         )));
     }
 
-    let faucet_resp: FaucetResponse = response
+    let rpc_resp: serde_json::Value = response
         .json()
         .await
-        .map_err(|e| BitcoinError::Esplora(format!("invalid faucet response: {e}")))?;
+        .map_err(|e| BitcoinError::Esplora(format!("invalid RPC response: {e}")))?;
 
-    Ok(faucet_resp.txid)
+    // Check for RPC error
+    if let Some(err) = rpc_resp.get("error") {
+        if !err.is_null() {
+            return Err(BitcoinError::Esplora(format!(
+                "RPC error: {}",
+                err.get("message").and_then(|m| m.as_str()).unwrap_or("unknown")
+            )));
+        }
+    }
+
+    let txid = rpc_resp["result"]
+        .as_str()
+        .ok_or_else(|| BitcoinError::Esplora("no txid in RPC response".to_string()))?
+        .to_string();
+
+    // Mine a block to confirm the transaction
+    mine_blocks(1).await?;
+
+    Ok(txid)
 }
 
 /// Mines blocks on regtest via Bitcoin Core JSON-RPC.
@@ -87,8 +98,8 @@ pub async fn mine_blocks(count: u32) -> Result<()> {
     });
 
     let addr_resp = client
-        .post(NIGIRI_RPC_URL)
-        .basic_auth(NIGIRI_RPC_USER, Some(NIGIRI_RPC_PASS))
+        .post(RPC_URL)
+        .basic_auth(RPC_USER, Some(RPC_PASS))
         .json(&addr_body)
         .send()
         .await
@@ -112,8 +123,8 @@ pub async fn mine_blocks(count: u32) -> Result<()> {
     });
 
     let gen_resp = client
-        .post(NIGIRI_RPC_URL)
-        .basic_auth(NIGIRI_RPC_USER, Some(NIGIRI_RPC_PASS))
+        .post(RPC_URL)
+        .basic_auth(RPC_USER, Some(RPC_PASS))
         .json(&gen_body)
         .send()
         .await
@@ -124,7 +135,7 @@ pub async fn mine_blocks(count: u32) -> Result<()> {
         return Err(BitcoinError::Esplora(format!("mine failed: {text}")));
     }
 
-    // Wait for electrs to index the new blocks
+    // Wait for electrs/esplora to index the new blocks
     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
     Ok(())
@@ -135,26 +146,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn faucet_response_deserializes() {
-        let json = r#"{"txid": "abc123def456"}"#;
-        let resp: FaucetResponse = serde_json::from_str(json).unwrap();
-        assert_eq!(resp.txid, "abc123def456");
-    }
-
-    #[test]
-    fn faucet_url_is_correct() {
-        assert_eq!(NIGIRI_FAUCET_URL, "http://localhost:3000/faucet");
-    }
-
-    #[test]
     fn rpc_url_is_correct() {
-        assert_eq!(NIGIRI_RPC_URL, "http://localhost:18443");
-    }
-
-    #[test]
-    fn faucet_response_deserializes_camel_case() {
-        let json = r#"{"txId": "abc123def456"}"#;
-        let resp: FaucetResponse = serde_json::from_str(json).unwrap();
-        assert_eq!(resp.txid, "abc123def456");
+        assert_eq!(RPC_URL, "http://localhost:18443");
     }
 }

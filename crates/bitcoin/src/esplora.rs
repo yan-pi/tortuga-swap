@@ -42,9 +42,12 @@ pub struct Utxo {
 
 impl EsploraClient {
     /// Creates a new client pointing to Nigiri's default Esplora endpoint.
+    ///
+    /// The URL can be overridden via the `ESPLORA_URL` environment variable.
     #[must_use]
     pub fn new_nigiri() -> Self {
-        Self::new(NIGIRI_ESPLORA_URL)
+        let url = std::env::var("ESPLORA_URL").unwrap_or_else(|_| NIGIRI_ESPLORA_URL.to_string());
+        Self::new(&url)
     }
 
     /// Creates a new client with a custom base URL.

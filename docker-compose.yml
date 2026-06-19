@@ -68,7 +68,7 @@ services:
       bitcoin:
         condition: service_healthy
     ports:
-      - "3000:3000"     # REST API (Esplora-compatible)
+      - "30000:3000"     # REST API (Esplora-compatible)
       - "50000:50000"   # Electrum
     volumes:
       - bitcoin-data:/config:ro

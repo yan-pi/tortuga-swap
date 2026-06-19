@@ -1,0 +1,77 @@
+# Docker Compose for Tortuga benchmark environment
+# Uses official Nigiri images (ghcr.io/vulpemventures/*)
+#
+# Usage:
+#   docker compose up -d          # Start services
+#   docker compose down           # Stop and remove containers
+#   docker compose logs -f        # Follow logs
+#
+# Services:
+#   - Bitcoin Core (regtest): RPC at localhost:18443
+#   - Electrs: REST API at localhost:3000 (Esplora-compatible)
+
+services:
+  # Bitcoin Core daemon (regtest)
+  bitcoin:
+    image: ghcr.io/getumbrel/docker-bitcoind:v30.0
+    container_name: tortuga-bitcoind
+    restart: unless-stopped
+    command:
+      - -regtest
+      - -server
+      - -rpcuser=admin1
+      - -rpcpassword=123
+      - -rpcallowip=0.0.0.0/0
+      - -rpcbind=0.0.0.0:18443
+      - -txindex=1
+      - -fallbackfee=0.00001
+      - -zmqpubrawblock=tcp://0.0.0.0:28332
+      - -zmqpubrawtx=tcp://0.0.0.0:28333
+      - -datadir=/data/.bitcoin
+    ports:
+      - "18443:18443"   # RPC
+      - "18444:18444"   # P2P
+      - "28332:28332"   # ZMQ rawblock
+      - "28333:28333"   # ZMQ rawtx
+    volumes:
+      - bitcoin-data:/data/.bitcoin
+    healthcheck:
+      test: ["CMD", "bitcoin-cli", "-regtest", "-datadir=/data/.bitcoin", "-rpcuser=admin1", "-rpcpassword=123", "getblockchaininfo"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Electrs (block explorer backend - Esplora-compatible REST API)
+  electrs:
+    image: ghcr.io/vulpemventures/electrs:latest
+    container_name: tortuga-electrs
+    restart: unless-stopped
+    entrypoint: ["/build/electrs"]
+    command:
+      - -vvv
+      - --network
+      - regtest
+      - --daemon-dir
+      - /config
+      - --daemon-rpc-addr
+      - bitcoin:18443
+      - --cookie
+      - admin1:123
+      - --http-addr
+      - 0.0.0.0:3000
+      - --electrum-rpc-addr
+      - 0.0.0.0:50000
+      - --cors
+      - "*"
+      - --jsonrpc-import
+    depends_on:
+      bitcoin:
+        condition: service_healthy
+    ports:
+      - "3000:3000"     # REST API (Esplora-compatible)
+      - "50000:50000"   # Electrum
+    volumes:
+      - bitcoin-data:/config:ro
+
+volumes:
+  bitcoin-data:
